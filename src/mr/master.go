@@ -1,29 +1,53 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"errors"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+const (
+	Processing = iota // 0
+	Proccessed = iota // 1
+)
 
 type Master struct {
-	// Your definitions here.
-
+	TaskNumberToFileMap map[int]string
+	JobSentMap          map[string]int
+	MapStepMap          map[string]int
+	AllFiles            []string
+	nReduce             int
+	TaskNumber          int
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func (m *Master) GetJob(args *JobRequest, reply *JobReply) error {
+	for _, value := range m.AllFiles {
+		_, ok := m.JobSentMap[value]
+		if !ok {
+			m.JobSentMap[value] = m.TaskNumber
+			m.MapStepMap[value] = Processing
+			m.TaskNumberToFileMap[m.TaskNumber] = value
+			reply.FileName = value
+			reply.NReduce = m.nReduce
+			reply.TaskNumber = m.TaskNumber
+			m.TaskNumber += 1
 
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 5
-	return nil
+			return nil
+		}
+	}
+	return errors.New("no more jobs available")
 }
 
+func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRequestReply) error {
+	taskNumber := args.TaskNumber
+	fileName := m.TaskNumberToFileMap[taskNumber]
+	m.MapStepMap[fileName] = Proccessed
+	return nil
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -51,7 +75,6 @@ func (m *Master) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -62,10 +85,14 @@ func (m *Master) Done() bool {
 //
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
+	m.AllFiles = files
+	m.JobSentMap = make(map[string]int)
+	m.MapStepMap = make(map[string]int)
+	m.TaskNumberToFileMap = make(map[int]string)
+	m.nReduce = nReduce
 
 	// Your code here.
 	log.Print(files)
-
 
 	m.server()
 	return &m
