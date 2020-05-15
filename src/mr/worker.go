@@ -8,6 +8,9 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 )
 
 //
@@ -39,6 +42,10 @@ func Worker(mapf func(string, string) []KeyValue,
 	if success {
 		runMap(reply, mapf)
 		ReportJobComplete(reply)
+		reduceJobReply, reduceJobSuccess := GetReduceJob()
+		if reduceJobSuccess {
+			runReduce(reduceJobReply, reducef)
+		}
 	}
 
 }
@@ -84,7 +91,56 @@ func runMap(reply *JobReply, mapf func(string, string) []KeyValue) {
 		}
 		file.Close()
 	}
+}
 
+func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) string) bool {
+	taskNumber := reduceJobReply.TaskNumber
+	files, err := ioutil.ReadDir("./")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resultMap := make(map[string][]string)
+
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), strconv.Itoa(taskNumber)) {
+			log.Print(f.Name())
+			filename := f.Name()
+			file, err := os.Open(f.Name())
+			if err != nil {
+				log.Fatalf("cannot open %v", filename)
+			}
+			dec := json.NewDecoder(file)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				_, exists := resultMap[kv.Key]
+				if exists {
+					resultMap[kv.Key] = append(resultMap[kv.Key], kv.Value)
+				} else {
+					resultMap[kv.Key] = []string{kv.Value}
+				}
+			}
+		}
+	}
+	keys := make([]string, 0, len(resultMap))
+	for key := range resultMap {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	oname := "mr-out-" + strconv.Itoa(taskNumber)
+	ofile, _ := os.Create(oname)
+
+	for _, key := range keys {
+		output := reducef(key, resultMap[key])
+		fmt.Fprintf(ofile, "%v %v\n", key, output)
+	}
+
+	return true
 }
 
 //
@@ -115,6 +171,19 @@ func ReportJobComplete(jobReply *JobReply) (*FinishRequestReply, bool) {
 		return reply, true
 	}
 	return nil, false
+}
+
+func GetReduceJob() (*ReduceJobReply, bool) {
+	args := ReduceJobRequest{}
+
+	reply := &ReduceJobReply{}
+	success := call("Master.GetReduceJob", &args, &reply)
+	if success {
+		fmt.Println("Got reduce job ", reply)
+		return reply, true
+	}
+	return nil, false
+
 }
 
 //

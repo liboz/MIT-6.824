@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	Processing = iota // 0
-	Proccessed = iota // 1
+	NotSent    = iota // 0
+	Processing = iota // 1
+	Proccessed = iota // 2
 )
 
 type Master struct {
@@ -21,6 +22,7 @@ type Master struct {
 	AllFiles            []string
 	nReduce             int
 	TaskNumber          int
+	ReduceJobMap        map[int]int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -49,13 +51,23 @@ func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRe
 	return nil
 }
 
+func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
+	for index, status := range m.ReduceJobMap {
+		if status == NotSent {
+			reply.TaskNumber = index
+			m.ReduceJobMap[index] = Processing
+			return nil
+		}
+	}
+	return errors.New("no more jobs available")
+}
+
 //
 // start a thread that listens for RPCs from worker.go
 //
 func (m *Master) server() {
 	rpc.Register(m)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
 	sockname := masterSock()
 	os.Remove(sockname)
 	l, e := net.Listen("unix", sockname)
@@ -71,11 +83,13 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
+	for _, status := range m.ReduceJobMap {
+		if status != Proccessed {
+			return false
+		}
+	}
 
-	// Your code here.
-
-	return ret
+	return true
 }
 
 //
@@ -89,6 +103,10 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.JobSentMap = make(map[string]int)
 	m.MapStepMap = make(map[string]int)
 	m.TaskNumberToFileMap = make(map[int]string)
+	m.ReduceJobMap = make(map[int]int)
+	for i := 0; i < nReduce; i++ {
+		m.ReduceJobMap[i] = NotSent
+	}
 	m.nReduce = nReduce
 
 	// Your code here.
