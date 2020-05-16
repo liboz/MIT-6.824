@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //
@@ -50,9 +51,15 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	var reduceJobReply *ReduceJobReply
 	var reduceJobSuccess bool
+	var error error
 	for {
-		reduceJobReply, reduceJobSuccess = GetReduceJob()
+		reduceJobReply, reduceJobSuccess, error = GetReduceJob()
 		if !reduceJobSuccess {
+			if strings.Contains(error.Error(), "map jobs") {
+				log.Print("Trying to get reduce job again in 1 second as map jobs are not done yet")
+				time.Sleep(time.Second)
+				continue
+			}
 			break
 		}
 		runReduce(reduceJobReply, reducef)
@@ -162,7 +169,7 @@ func GetMapJob() (*MapJobReply, bool) {
 	args := MapJobRequest{}
 
 	reply := &MapJobReply{}
-	success := call("Master.GetMapJob", &args, &reply)
+	success, _ := call("Master.GetMapJob", &args, &reply)
 	if success {
 		fmt.Println("Response to get map job was ", reply)
 		return reply, true
@@ -175,23 +182,23 @@ func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
 	args.TaskNumber = jobReply.TaskNumber
 
 	reply := &FinishRequestReply{}
-	success := call("Master.ReportMapJobComplete", &args, &reply)
+	success, _ := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
 		return reply, true
 	}
 	return nil, false
 }
 
-func GetReduceJob() (*ReduceJobReply, bool) {
+func GetReduceJob() (*ReduceJobReply, bool, error) {
 	args := ReduceJobRequest{}
 
 	reply := &ReduceJobReply{}
-	success := call("Master.GetReduceJob", &args, &reply)
+	success, error := call("Master.GetReduceJob", &args, &reply)
 	if success {
 		fmt.Println("Got reduce job ", reply)
-		return reply, true
+		return reply, true, error
 	}
-	return nil, false
+	return nil, false, error
 
 }
 
@@ -200,7 +207,7 @@ func ReportReduceJobComplete(jobReply *ReduceJobReply) (*FinishRequestReply, boo
 	args.TaskNumber = jobReply.TaskNumber
 
 	reply := &FinishRequestReply{}
-	success := call("Master.ReportReduceJobComplete", &args, &reply)
+	success, _ := call("Master.ReportReduceJobComplete", &args, &reply)
 	if success {
 		return reply, true
 	}
@@ -212,7 +219,7 @@ func ReportReduceJobComplete(jobReply *ReduceJobReply) (*FinishRequestReply, boo
 // usually returns true.
 // returns false if something goes wrong.
 //
-func call(rpcname string, args interface{}, reply interface{}) bool {
+func call(rpcname string, args interface{}, reply interface{}) (bool, error) {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := masterSock()
 	c, err := rpc.DialHTTP("unix", sockname)
@@ -223,9 +230,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
-		return true
+		return true, err
 	}
 
 	fmt.Println(err)
-	return false
+	return false, err
 }

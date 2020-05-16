@@ -67,6 +67,14 @@ func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRe
 }
 
 func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
+	m.MapStepMapLock.Lock()
+	defer m.MapStepMapLock.Unlock()
+	for _, status := range m.MapStepMap {
+		if status != Proccessed {
+			return errors.New("map jobs are still working. please try again")
+		}
+	}
+
 	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
 	for index, status := range m.ReduceJobMap {
