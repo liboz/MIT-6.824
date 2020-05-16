@@ -37,15 +37,25 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
-	reply, success := GetJob()
-	if success {
+	var reply *JobReply
+	var hasMapJob bool
+	for {
+		reply, hasMapJob = GetJob()
+		if !hasMapJob {
+			break
+		}
 		runMap(reply, mapf)
 		ReportJobComplete(reply)
-		reduceJobReply, reduceJobSuccess := GetReduceJob()
-		if reduceJobSuccess {
-			runReduce(reduceJobReply, reducef)
+	}
+
+	var reduceJobReply *ReduceJobReply
+	var reduceJobSuccess bool
+	for {
+		reduceJobReply, reduceJobSuccess = GetReduceJob()
+		if !reduceJobSuccess {
+			break
 		}
+		runReduce(reduceJobReply, reducef)
 	}
 
 }
