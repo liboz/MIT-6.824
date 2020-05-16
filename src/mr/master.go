@@ -26,32 +26,28 @@ type Master struct {
 	AllFiles                []string
 	nReduce                 int
 	TaskNumber              int
-	TaskNumberLock          sync.RWMutex
 	ReduceJobMap            map[int]int
 	ReduceJobMapLock        sync.RWMutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
 func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
+	m.JobSentMapLock.Lock()
+	defer m.JobSentMapLock.Unlock()
 	for _, value := range m.AllFiles {
-		m.JobSentMapLock.RLock()
-		defer m.JobSentMapLock.Unlock()
 		_, ok := m.JobSentMap[value]
 		if !ok {
 			m.JobSentMap[value] = m.TaskNumber
 
-			m.MapStepMapLock.RLock()
+			m.MapStepMapLock.Lock()
 			defer m.MapStepMapLock.Unlock()
-			m.TaskNumberToFileMapLock.RLock()
-			defer m.TaskNumberToFileMapLock.Unlock()
-
 			m.MapStepMap[value] = Processing
+
+			m.TaskNumberToFileMapLock.Lock()
+			defer m.TaskNumberToFileMapLock.Unlock()
 			m.TaskNumberToFileMap[m.TaskNumber] = value
 			reply.FileName = value
 			reply.NReduce = m.nReduce
-
-			m.TaskNumberLock.RLock()
-			defer m.TaskNumberLock.Unlock()
 			reply.TaskNumber = m.TaskNumber
 			m.TaskNumber += 1
 
@@ -64,14 +60,14 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRequestReply) error {
 	taskNumber := args.TaskNumber
 	fileName := m.TaskNumberToFileMap[taskNumber]
-	m.MapStepMapLock.RLock()
+	m.MapStepMapLock.Lock()
 	defer m.MapStepMapLock.Unlock()
 	m.MapStepMap[fileName] = Proccessed
 	return nil
 }
 
 func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
-	m.ReduceJobMapLock.RLock()
+	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
 	for index, status := range m.ReduceJobMap {
 		if status == NotSent {
@@ -85,7 +81,7 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 
 func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *FinishRequestReply) error {
 	taskNumber := args.TaskNumber
-	m.ReduceJobMapLock.RLock()
+	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
 	m.ReduceJobMap[taskNumber] = Proccessed
 	return nil
@@ -112,6 +108,8 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
+	m.ReduceJobMapLock.RLock()
+	defer m.ReduceJobMapLock.RUnlock()
 	for _, status := range m.ReduceJobMap {
 		if status != Proccessed {
 			return false
@@ -137,7 +135,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 		m.ReduceJobMap[i] = NotSent
 	}
 	m.nReduce = nReduce
-	m.TaskNumberLock = sync.RWMutex{}
 	m.TaskNumberToFileMapLock = sync.RWMutex{}
 	m.JobSentMapLock = sync.RWMutex{}
 	m.MapStepMapLock = sync.RWMutex{}
