@@ -12,10 +12,10 @@ import (
 )
 
 // Add your RPC definitions here.
-type JobRequest struct {
+type MapJobRequest struct {
 }
 
-type JobReply struct {
+type MapJobReply struct {
 	FileName   string
 	NReduce    int
 	TaskNumber int
@@ -32,6 +32,10 @@ type ReduceJobRequest struct {
 }
 
 type ReduceJobReply struct {
+	TaskNumber int
+}
+
+type ReduceJobFinishRequest struct {
 	TaskNumber int
 }
 

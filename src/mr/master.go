@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 const (
@@ -16,42 +17,62 @@ const (
 )
 
 type Master struct {
-	TaskNumberToFileMap map[int]string
-	JobSentMap          map[string]int
-	MapStepMap          map[string]int
-	AllFiles            []string
-	nReduce             int
-	TaskNumber          int
-	ReduceJobMap        map[int]int
+	TaskNumberToFileMap     map[int]string
+	TaskNumberToFileMapLock sync.RWMutex
+	JobSentMap              map[string]int
+	JobSentMapLock          sync.RWMutex
+	MapStepMap              map[string]int
+	MapStepMapLock          sync.RWMutex
+	AllFiles                []string
+	nReduce                 int
+	TaskNumber              int
+	TaskNumberLock          sync.RWMutex
+	ReduceJobMap            map[int]int
+	ReduceJobMapLock        sync.RWMutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
-func (m *Master) GetJob(args *JobRequest, reply *JobReply) error {
+func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 	for _, value := range m.AllFiles {
+		m.JobSentMapLock.RLock()
+		defer m.JobSentMapLock.Unlock()
 		_, ok := m.JobSentMap[value]
 		if !ok {
 			m.JobSentMap[value] = m.TaskNumber
+
+			m.MapStepMapLock.RLock()
+			defer m.MapStepMapLock.Unlock()
+			m.TaskNumberToFileMapLock.RLock()
+			defer m.TaskNumberToFileMapLock.Unlock()
+
 			m.MapStepMap[value] = Processing
 			m.TaskNumberToFileMap[m.TaskNumber] = value
 			reply.FileName = value
 			reply.NReduce = m.nReduce
+
+			m.TaskNumberLock.RLock()
+			defer m.TaskNumberLock.Unlock()
 			reply.TaskNumber = m.TaskNumber
 			m.TaskNumber += 1
 
 			return nil
 		}
 	}
-	return errors.New("no more jobs available")
+	return errors.New("no more map jobs available")
 }
 
 func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRequestReply) error {
 	taskNumber := args.TaskNumber
 	fileName := m.TaskNumberToFileMap[taskNumber]
+	m.MapStepMapLock.RLock()
+	defer m.MapStepMapLock.Unlock()
 	m.MapStepMap[fileName] = Proccessed
 	return nil
 }
 
 func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
+	m.ReduceJobMapLock.RLock()
+	defer m.ReduceJobMapLock.Unlock()
 	for index, status := range m.ReduceJobMap {
 		if status == NotSent {
 			reply.TaskNumber = index
@@ -59,7 +80,15 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 			return nil
 		}
 	}
-	return errors.New("no more jobs available")
+	return errors.New("no more reduce jobs available")
+}
+
+func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *FinishRequestReply) error {
+	taskNumber := args.TaskNumber
+	m.ReduceJobMapLock.RLock()
+	defer m.ReduceJobMapLock.Unlock()
+	m.ReduceJobMap[taskNumber] = Proccessed
+	return nil
 }
 
 //
@@ -108,10 +137,13 @@ func MakeMaster(files []string, nReduce int) *Master {
 		m.ReduceJobMap[i] = NotSent
 	}
 	m.nReduce = nReduce
+	m.TaskNumberLock = sync.RWMutex{}
+	m.TaskNumberToFileMapLock = sync.RWMutex{}
+	m.JobSentMapLock = sync.RWMutex{}
+	m.MapStepMapLock = sync.RWMutex{}
+	m.ReduceJobMapLock = sync.RWMutex{}
 
 	// Your code here.
-	log.Print(files)
-
 	m.server()
 	return &m
 }

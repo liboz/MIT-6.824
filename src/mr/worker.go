@@ -37,15 +37,15 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	var reply *JobReply
+	var reply *MapJobReply
 	var hasMapJob bool
 	for {
-		reply, hasMapJob = GetJob()
+		reply, hasMapJob = GetMapJob()
 		if !hasMapJob {
 			break
 		}
 		runMap(reply, mapf)
-		ReportJobComplete(reply)
+		ReportMapJobComplete(reply)
 	}
 
 	var reduceJobReply *ReduceJobReply
@@ -56,6 +56,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 		runReduce(reduceJobReply, reducef)
+		ReportReduceJobComplete(reduceJobReply)
 	}
 
 }
@@ -66,7 +67,7 @@ func check(e error) {
 	}
 }
 
-func runMap(reply *JobReply, mapf func(string, string) []KeyValue) {
+func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) {
 	filename := reply.FileName
 	nReduce := reply.NReduce
 	taskNumber := reply.TaskNumber
@@ -114,7 +115,6 @@ func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) st
 
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), strconv.Itoa(taskNumber)) {
-			log.Print(f.Name())
 			filename := f.Name()
 			file, err := os.Open(f.Name())
 			if err != nil {
@@ -158,26 +158,25 @@ func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) st
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func GetJob() (*JobReply, bool) {
-	args := JobRequest{}
+func GetMapJob() (*MapJobReply, bool) {
+	args := MapJobRequest{}
 
-	reply := &JobReply{}
-	success := call("Master.GetJob", &args, &reply)
+	reply := &MapJobReply{}
+	success := call("Master.GetMapJob", &args, &reply)
 	if success {
-		fmt.Println("Response was ", reply)
+		fmt.Println("Response to get map job was ", reply)
 		return reply, true
 	}
 	return nil, false
 }
 
-func ReportJobComplete(jobReply *JobReply) (*FinishRequestReply, bool) {
+func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
 	args := MapJobFinishRequest{}
 	args.TaskNumber = jobReply.TaskNumber
 
 	reply := &FinishRequestReply{}
 	success := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
-		fmt.Println("Job Complete response was ", reply)
 		return reply, true
 	}
 	return nil, false
@@ -194,6 +193,18 @@ func GetReduceJob() (*ReduceJobReply, bool) {
 	}
 	return nil, false
 
+}
+
+func ReportReduceJobComplete(jobReply *ReduceJobReply) (*FinishRequestReply, bool) {
+	args := ReduceJobFinishRequest{}
+	args.TaskNumber = jobReply.TaskNumber
+
+	reply := &FinishRequestReply{}
+	success := call("Master.ReportReduceJobComplete", &args, &reply)
+	if success {
+		return reply, true
+	}
+	return nil, false
 }
 
 //
