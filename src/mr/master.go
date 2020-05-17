@@ -2,11 +2,13 @@ package mr
 
 import (
 	"errors"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"regexp"
 	"sync"
 )
 
@@ -59,6 +61,8 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 
 func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRequestReply) error {
 	taskNumber := args.TaskNumber
+	m.TaskNumberToFileMapLock.RLock()
+	defer m.TaskNumberToFileMapLock.RUnlock()
 	fileName := m.TaskNumberToFileMap[taskNumber]
 	m.MapStepMapLock.Lock()
 	defer m.MapStepMapLock.Unlock()
@@ -121,6 +125,18 @@ func (m *Master) Done() bool {
 	for _, status := range m.ReduceJobMap {
 		if status != Proccessed {
 			return false
+		}
+	}
+
+	files, err := ioutil.ReadDir("./")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, f := range files {
+		matched, _ := regexp.MatchString(`mr-\d+-\d+`, f.Name())
+		if matched {
+			os.Remove(f.Name())
 		}
 	}
 

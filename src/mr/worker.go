@@ -121,7 +121,7 @@ func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) st
 	resultMap := make(map[string][]string)
 
 	for _, f := range files {
-		if strings.HasSuffix(f.Name(), strconv.Itoa(taskNumber)) {
+		if strings.HasSuffix(f.Name(), "-"+strconv.Itoa(taskNumber)) {
 			filename := f.Name()
 			file, err := os.Open(f.Name())
 			if err != nil {
