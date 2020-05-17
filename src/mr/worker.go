@@ -40,9 +40,15 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	var reply *MapJobReply
 	var hasMapJob bool
+	var error error
 	for {
-		reply, hasMapJob = GetMapJob()
+		reply, hasMapJob, error = GetMapJob()
 		if !hasMapJob {
+			if strings.Contains(error.Error(), "still working") {
+				log.Print("Trying to get map job again in 1 second as map jobs are not done yet")
+				time.Sleep(time.Second)
+				continue
+			}
 			break
 		}
 		runMap(reply, mapf)
@@ -51,12 +57,11 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	var reduceJobReply *ReduceJobReply
 	var reduceJobSuccess bool
-	var error error
 	for {
 		reduceJobReply, reduceJobSuccess, error = GetReduceJob()
 		if !reduceJobSuccess {
-			if strings.Contains(error.Error(), "map jobs") {
-				log.Print("Trying to get reduce job again in 1 second as map jobs are not done yet")
+			if strings.Contains(error.Error(), "still working") {
+				log.Print("Trying to get reduce job again in 1 second as reduce jobs are not done yet")
 				time.Sleep(time.Second)
 				continue
 			}
@@ -165,16 +170,16 @@ func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) st
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func GetMapJob() (*MapJobReply, bool) {
+func GetMapJob() (*MapJobReply, bool, error) {
 	args := MapJobRequest{}
 
 	reply := &MapJobReply{}
-	success, _ := call("Master.GetMapJob", &args, &reply)
+	success, error := call("Master.GetMapJob", &args, &reply)
 	if success {
 		fmt.Println("Response to get map job was ", reply)
-		return reply, true
+		return reply, true, error
 	}
-	return nil, false
+	return nil, false, error
 }
 
 func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
@@ -233,6 +238,6 @@ func call(rpcname string, args interface{}, reply interface{}) (bool, error) {
 		return true, err
 	}
 
-	fmt.Println(err)
+	//log.Print(err)
 	return false, err
 }
