@@ -178,8 +178,6 @@ func (m *Master) checkReduceJobTimeoutRepeatedly() {
 }
 
 func (m *Master) checkReduceJobsAllDone() bool {
-	m.ReduceJobMapLock.RLock()
-	defer m.ReduceJobMapLock.RUnlock()
 	for _, status := range m.ReduceJobMap {
 		if status != Proccessed {
 			return false
@@ -209,6 +207,8 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
+	m.ReduceJobMapLock.RLock()
+	defer m.ReduceJobMapLock.RUnlock()
 	done := m.checkReduceJobsAllDone()
 	if !done {
 		return false
