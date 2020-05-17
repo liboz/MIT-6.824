@@ -141,12 +141,15 @@ func (m *Master) checkMapJobTimeout() {
 }
 
 func (m *Master) checkMapJobTimeoutRepeatedly() {
+	doTimeoutCheck := true
 	for {
 		select {
 		case <-m.MapJobCompleteChannel:
-			return
+			doTimeoutCheck = false
 		case <-time.After(time.Second):
-			m.checkMapJobTimeout()
+			if doTimeoutCheck {
+				m.checkMapJobTimeout()
+			}
 		}
 	}
 }
@@ -168,12 +171,15 @@ func (m *Master) checkReduceJobTimeout() {
 }
 
 func (m *Master) checkReduceJobTimeoutRepeatedly() {
+	doTimeoutCheck := true
 	for {
 		select {
 		case <-m.ReduceJobCompleteChannel:
-			return
+			doTimeoutCheck = false
 		case <-time.After(time.Second):
-			m.checkReduceJobTimeout()
+			if doTimeoutCheck {
+				m.checkReduceJobTimeout()
+			}
 		}
 	}
 }

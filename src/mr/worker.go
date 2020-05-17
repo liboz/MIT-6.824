@@ -44,8 +44,9 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		reply, hasMapJob, error = GetMapJob()
 		if !hasMapJob {
+			//log.Print("We got an error ", error, " on ", os.Getpid())
 			if strings.Contains(error.Error(), "still working") {
-				//log.Print("Trying to get map job again in 1 second as map jobs are not done yet")
+				//log.Print("Trying to get map job again in 1 second as map jobs are not done yet on ", os.Getpid())
 				time.Sleep(time.Second)
 				continue
 			}
@@ -178,9 +179,10 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	args := MapJobRequest{}
 
 	reply := &MapJobReply{}
+	//log.Print("Trying to get map job on ", os.Getpid())
 	success, error := call("Master.GetMapJob", &args, &reply)
 	if success {
-		//fmt.Println("Response to get map job was ", reply)
+		log.Print("Got map job  ", reply, " on ", os.Getpid())
 		return reply, true, error
 	}
 	return nil, false, error
@@ -196,7 +198,7 @@ func ReportMapJobComplete(jobReply *MapJobReply, fileNames map[string]string) (*
 		for key, value := range fileNames {
 			os.Rename(key, value)
 		}
-
+		//log.Print("Succesfully reported map job ", jobReply.TaskNumber, " complete on ", os.Getpid())
 		return reply, true
 	}
 	return nil, false
@@ -206,9 +208,10 @@ func GetReduceJob() (*ReduceJobReply, bool, error) {
 	args := ReduceJobRequest{}
 
 	reply := &ReduceJobReply{}
+	//log.Print("Trying to get reduce job on ", os.Getpid())
 	success, error := call("Master.GetReduceJob", &args, &reply)
 	if success {
-		//fmt.Println("Got reduce job ", reply)
+		log.Print("Got reduce job ", reply, " on ", os.Getpid())
 		return reply, true, error
 	}
 	return nil, false, error
