@@ -107,12 +107,12 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 		}
 	}
 
-	reduceJobsStillWorking := m.checkReduceJobsAllDone(false)
-	if reduceJobsStillWorking {
-		return errors.New("reduce jobs still working try again")
-	} else {
+	allDone := m.checkReduceJobsAllDone(false)
+	if allDone {
 		m.ReduceJobCompleteChannel <- 0
 		return errors.New("no more reduce jobs available")
+	} else {
+		return errors.New("reduce jobs still working try again")
 	}
 }
 
