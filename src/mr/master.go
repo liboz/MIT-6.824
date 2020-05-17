@@ -255,6 +255,9 @@ func MakeMaster(files []string, nReduce int) *Master {
 
 	go m.checkMapJobTimeoutRepeatedly()
 	go m.checkReduceJobTimeoutRepeatedly()
+	if _, err := os.Stat("tmp/"); os.IsNotExist(err) {
+		os.Mkdir("tmp/", os.ModeDir)
+	}
 	m.server()
 	return &m
 }

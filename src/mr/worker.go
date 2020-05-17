@@ -107,7 +107,7 @@ func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) map[string
 	fileNames := make(map[string]string)
 	for key, elements := range intermediate {
 		fileName := fmt.Sprintf("mr-%d-%d", taskNumber, key)
-		file, err := ioutil.TempFile("", "tmp")
+		file, err := ioutil.TempFile("tmp/", "tmp")
 		fileNames[file.Name()] = fileName
 		check(err)
 		enc := json.NewEncoder(file)
@@ -193,7 +193,6 @@ func ReportMapJobComplete(jobReply *MapJobReply, fileNames map[string]string) (*
 	reply := &FinishRequestReply{}
 	success, _ := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
-		log.Print(fileNames)
 		for key, value := range fileNames {
 			os.Rename(key, value)
 		}
