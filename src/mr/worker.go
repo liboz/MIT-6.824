@@ -51,8 +51,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 			break
 		}
-		runMap(reply, mapf)
-		ReportMapJobComplete(reply)
+		fileNames := runMap(reply, mapf)
+		ReportMapJobComplete(reply, fileNames)
 	}
 
 	var reduceJobReply *ReduceJobReply
@@ -79,7 +79,7 @@ func check(e error) {
 	}
 }
 
-func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) {
+func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) map[string]string {
 	filename := reply.FileName
 	nReduce := reply.NReduce
 	taskNumber := reply.TaskNumber
@@ -104,8 +104,11 @@ func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) {
 		}
 	}
 
+	fileNames := make(map[string]string)
 	for key, elements := range intermediate {
-		file, err := os.Create(fmt.Sprintf("mr-%d-%d", taskNumber, key))
+		fileName := fmt.Sprintf("mr-%d-%d", taskNumber, key)
+		file, err := ioutil.TempFile("", "tmp")
+		fileNames[file.Name()] = fileName
 		check(err)
 		enc := json.NewEncoder(file)
 		for _, element := range elements {
@@ -114,6 +117,7 @@ func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) {
 		}
 		file.Close()
 	}
+	return fileNames
 }
 
 func runReduce(reduceJobReply *ReduceJobReply, reducef func(string, []string) string) bool {
@@ -182,13 +186,18 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	return nil, false, error
 }
 
-func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
+func ReportMapJobComplete(jobReply *MapJobReply, fileNames map[string]string) (*FinishRequestReply, bool) {
 	args := MapJobFinishRequest{}
 	args.TaskNumber = jobReply.TaskNumber
 
 	reply := &FinishRequestReply{}
 	success, _ := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
+		log.Print(fileNames)
+		for key, value := range fileNames {
+			os.Rename(key, value)
+		}
+
 		return reply, true
 	}
 	return nil, false
