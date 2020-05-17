@@ -82,8 +82,8 @@ func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRe
 }
 
 func (m *Master) checkMapJobsAllDone() error {
-	m.MapStepMapLock.RLock()
-	defer m.MapStepMapLock.RUnlock()
+	m.MapStepMapLock.Lock()
+	defer m.MapStepMapLock.Unlock()
 	for _, status := range m.MapStepMap {
 		if status != Proccessed {
 			return errors.New("map jobs are still working. please try again")
@@ -107,7 +107,7 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 		}
 	}
 
-	reduceJobsStillWorking := m.checkReduceJobsAllDone()
+	reduceJobsStillWorking := m.checkReduceJobsAllDone(false)
 	if reduceJobsStillWorking {
 		return errors.New("reduce jobs still working try again")
 	} else {
@@ -154,13 +154,14 @@ func (m *Master) checkMapJobTimeoutRepeatedly() {
 func (m *Master) checkReduceJobTimeout() {
 	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
+	m.ReduceJobSentTimeMapLock.Lock()
+	defer m.ReduceJobSentTimeMapLock.Unlock()
 	for index, status := range m.ReduceJobMap {
 		if status != Proccessed {
-			m.ReduceJobSentTimeMapLock.RLock()
-			defer m.ReduceJobSentTimeMapLock.RUnlock()
 			expirationTime, ok := m.ReduceJobSentTimeMap[index]
 			if ok && expirationTime.Before(time.Now()) {
-				delete(m.ReduceJobMap, index)
+				m.ReduceJobMap[index] = NotSent
+				delete(m.ReduceJobSentTimeMap, index)
 			}
 		}
 	}
@@ -177,7 +178,11 @@ func (m *Master) checkReduceJobTimeoutRepeatedly() {
 	}
 }
 
-func (m *Master) checkReduceJobsAllDone() bool {
+func (m *Master) checkReduceJobsAllDone(lock bool) bool {
+	if lock {
+		m.ReduceJobMapLock.RLock()
+		defer m.ReduceJobMapLock.RUnlock()
+	}
 	for _, status := range m.ReduceJobMap {
 		if status != Proccessed {
 			return false
@@ -195,7 +200,6 @@ func (m *Master) server() {
 	sockname := masterSock()
 	os.Remove(sockname)
 	l, e := net.Listen("unix", sockname)
-	log.Print("Listening at:", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -207,9 +211,7 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	m.ReduceJobMapLock.RLock()
-	defer m.ReduceJobMapLock.RUnlock()
-	done := m.checkReduceJobsAllDone()
+	done := m.checkReduceJobsAllDone(true)
 	if !done {
 		return false
 	}

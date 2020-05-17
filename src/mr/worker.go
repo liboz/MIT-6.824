@@ -45,7 +45,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		reply, hasMapJob, error = GetMapJob()
 		if !hasMapJob {
 			if strings.Contains(error.Error(), "still working") {
-				log.Print("Trying to get map job again in 1 second as map jobs are not done yet")
+				//log.Print("Trying to get map job again in 1 second as map jobs are not done yet")
 				time.Sleep(time.Second)
 				continue
 			}
@@ -61,7 +61,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		reduceJobReply, reduceJobSuccess, error = GetReduceJob()
 		if !reduceJobSuccess {
 			if strings.Contains(error.Error(), "still working") {
-				log.Print("Trying to get reduce job again in 1 second as reduce jobs are not done yet")
+				//log.Print("Trying to get reduce job again in 1 second as reduce jobs are not done yet")
 				time.Sleep(time.Second)
 				continue
 			}
@@ -180,7 +180,7 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	reply := &MapJobReply{}
 	success, error := call("Master.GetMapJob", &args, &reply)
 	if success {
-		fmt.Println("Response to get map job was ", reply)
+		//fmt.Println("Response to get map job was ", reply)
 		return reply, true, error
 	}
 	return nil, false, error
@@ -208,7 +208,7 @@ func GetReduceJob() (*ReduceJobReply, bool, error) {
 	reply := &ReduceJobReply{}
 	success, error := call("Master.GetReduceJob", &args, &reply)
 	if success {
-		fmt.Println("Got reduce job ", reply)
+		//fmt.Println("Got reduce job ", reply)
 		return reply, true, error
 	}
 	return nil, false, error
