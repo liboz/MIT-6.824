@@ -53,7 +53,10 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 		fileNames := runMap(reply, mapf)
-		ReportMapJobComplete(reply, fileNames)
+		for key, value := range fileNames {
+			os.Rename(key, value)
+		}
+		ReportMapJobComplete(reply)
 	}
 
 	var reduceJobReply *ReduceJobReply
@@ -188,16 +191,13 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	return nil, false, error
 }
 
-func ReportMapJobComplete(jobReply *MapJobReply, fileNames map[string]string) (*FinishRequestReply, bool) {
+func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
 	args := MapJobFinishRequest{}
 	args.TaskNumber = jobReply.TaskNumber
 
 	reply := &FinishRequestReply{}
 	success, _ := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
-		for key, value := range fileNames {
-			os.Rename(key, value)
-		}
 		//log.Print("Succesfully reported map job ", jobReply.TaskNumber, " complete on ", os.Getpid())
 		return reply, true
 	}
