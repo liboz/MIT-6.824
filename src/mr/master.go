@@ -19,6 +19,10 @@ const (
 	Proccessed = iota // 2
 )
 
+func nowPlus10Seconds() time.Time {
+	return time.Now().Add(time.Second * time.Duration(10))
+}
+
 type Master struct {
 	MapJobMap                map[string]int
 	MapJobMapLock            sync.RWMutex
@@ -72,14 +76,6 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 	}
 }
 
-func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *MapJobFinishReply) error {
-	fileName := args.FileName
-	m.MapJobMapLock.Lock()
-	defer m.MapJobMapLock.Unlock()
-	m.MapJobMap[fileName] = Proccessed
-	return nil
-}
-
 func (m *Master) checkMapJobsAllDone() error {
 	m.MapJobMapLock.Lock()
 	defer m.MapJobMapLock.Unlock()
@@ -92,38 +88,11 @@ func (m *Master) checkMapJobsAllDone() error {
 	return nil
 }
 
-func nowPlus10Seconds() time.Time {
-	return time.Now().Add(time.Second * time.Duration(10))
-}
-
-func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
-	m.ReduceJobMapLock.Lock()
-	defer m.ReduceJobMapLock.Unlock()
-	for index, status := range m.ReduceJobMap {
-		if status == NotSent {
-			reply.TaskNumber = index
-			m.ReduceJobMap[index] = Processing
-			m.ReduceJobSentTimeMapLock.Lock()
-			defer m.ReduceJobSentTimeMapLock.Unlock()
-			m.ReduceJobSentTimeMap[index] = nowPlus10Seconds()
-			return nil
-		}
-	}
-
-	allDone := m.checkReduceJobsAllDone(false)
-	if allDone {
-		m.ReduceJobCompleteChannel <- 0
-		return errors.New("no more reduce jobs available")
-	} else {
-		return errors.New("reduce jobs still working try again")
-	}
-}
-
-func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *MapJobFinishReply) error {
-	taskNumber := args.TaskNumber
-	m.ReduceJobMapLock.Lock()
-	defer m.ReduceJobMapLock.Unlock()
-	m.ReduceJobMap[taskNumber] = Proccessed
+func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *MapJobFinishReply) error {
+	fileName := args.FileName
+	m.MapJobMapLock.Lock()
+	defer m.MapJobMapLock.Unlock()
+	m.MapJobMap[fileName] = Proccessed
 	return nil
 }
 
@@ -157,6 +126,50 @@ func (m *Master) checkMapJobTimeoutRepeatedly() {
 	}
 }
 
+func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
+	m.ReduceJobMapLock.Lock()
+	defer m.ReduceJobMapLock.Unlock()
+	for index, status := range m.ReduceJobMap {
+		if status == NotSent {
+			reply.TaskNumber = index
+			m.ReduceJobMap[index] = Processing
+			m.ReduceJobSentTimeMapLock.Lock()
+			defer m.ReduceJobSentTimeMapLock.Unlock()
+			m.ReduceJobSentTimeMap[index] = nowPlus10Seconds()
+			return nil
+		}
+	}
+
+	allDone := m.checkReduceJobsAllDone(false)
+	if allDone {
+		m.ReduceJobCompleteChannel <- 0
+		return errors.New("no more reduce jobs available")
+	} else {
+		return errors.New("reduce jobs still working try again")
+	}
+}
+
+func (m *Master) checkReduceJobsAllDone(lock bool) bool {
+	if lock {
+		m.ReduceJobMapLock.RLock()
+		defer m.ReduceJobMapLock.RUnlock()
+	}
+	for _, status := range m.ReduceJobMap {
+		if status != Proccessed {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *MapJobFinishReply) error {
+	taskNumber := args.TaskNumber
+	m.ReduceJobMapLock.Lock()
+	defer m.ReduceJobMapLock.Unlock()
+	m.ReduceJobMap[taskNumber] = Proccessed
+	return nil
+}
+
 func (m *Master) checkReduceJobTimeout() {
 	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
@@ -185,19 +198,6 @@ func (m *Master) checkReduceJobTimeoutRepeatedly() {
 			}
 		}
 	}
-}
-
-func (m *Master) checkReduceJobsAllDone(lock bool) bool {
-	if lock {
-		m.ReduceJobMapLock.RLock()
-		defer m.ReduceJobMapLock.RUnlock()
-	}
-	for _, status := range m.ReduceJobMap {
-		if status != Proccessed {
-			return false
-		}
-	}
-	return true
 }
 
 //

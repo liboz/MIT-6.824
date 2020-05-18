@@ -32,6 +32,12 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
 //
 // main/mrworker.go calls this function.
 //
@@ -75,12 +81,6 @@ func Worker(mapf func(string, string) []KeyValue,
 		ReportReduceJobComplete(reduceJobReply)
 	}
 
-}
-
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
 }
 
 func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) map[string]string {
