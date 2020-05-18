@@ -84,8 +84,12 @@ func (m *Master) checkMapJobsAllDone() error {
 			return errors.New("map jobs are still working. please try again")
 		}
 	}
-	m.MapJobCompleteChannel <- 0
-	return nil
+	select {
+	case m.MapJobCompleteChannel <- 0:
+		return nil
+	case <-time.After(time.Second * 2):
+		return nil
+	}
 }
 
 func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *MapJobFinishReply) error {
@@ -117,8 +121,8 @@ func (m *Master) checkMapJobTimeoutRepeatedly() {
 		select {
 		case <-m.MapJobCompleteChannel:
 			m.MapJobFinishedLock.Lock()
-			m.MapJobFinished = true
 			defer m.MapJobFinishedLock.Unlock()
+			m.MapJobFinished = true
 			return
 		case <-time.After(time.Second):
 			m.checkMapJobTimeout()
