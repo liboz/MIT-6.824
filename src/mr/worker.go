@@ -191,11 +191,11 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	return nil, false, error
 }
 
-func ReportMapJobComplete(jobReply *MapJobReply) (*FinishRequestReply, bool) {
+func ReportMapJobComplete(jobReply *MapJobReply) (*MapJobFinishReply, bool) {
 	args := MapJobFinishRequest{}
-	args.TaskNumber = jobReply.TaskNumber
+	args.FileName = jobReply.FileName
 
-	reply := &FinishRequestReply{}
+	reply := &MapJobFinishReply{}
 	success, _ := call("Master.ReportMapJobComplete", &args, &reply)
 	if success {
 		//log.Print("Succesfully reported map job ", jobReply.TaskNumber, " complete on ", os.Getpid())
@@ -218,11 +218,11 @@ func GetReduceJob() (*ReduceJobReply, bool, error) {
 
 }
 
-func ReportReduceJobComplete(jobReply *ReduceJobReply) (*FinishRequestReply, bool) {
+func ReportReduceJobComplete(jobReply *ReduceJobReply) (*MapJobFinishReply, bool) {
 	args := ReduceJobFinishRequest{}
 	args.TaskNumber = jobReply.TaskNumber
 
-	reply := &FinishRequestReply{}
+	reply := &MapJobFinishReply{}
 	success, _ := call("Master.ReportReduceJobComplete", &args, &reply)
 	if success {
 		return reply, true

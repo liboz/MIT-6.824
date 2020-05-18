@@ -20,12 +20,10 @@ const (
 )
 
 type Master struct {
-	TaskNumberToFileMap      map[int]string
-	TaskNumberToFileMapLock  sync.RWMutex
+	MapJobMap                map[string]int
+	MapJobMapLock            sync.RWMutex
 	MapJobSentTimeMap        map[string]time.Time
 	MapJobSentTimeMapLock    sync.RWMutex
-	MapStepMap               map[string]int
-	MapStepMapLock           sync.RWMutex
 	MapJobCompleteChannel    chan int
 	MapJobFinished           bool
 	MapJobFinishedLock       sync.RWMutex
@@ -46,15 +44,12 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 	for _, value := range m.AllFiles {
 		_, ok := m.MapJobSentTimeMap[value]
 		if !ok {
-			m.MapJobSentTimeMap[value] = time.Now().Add(time.Second * time.Duration(10))
+			m.MapJobSentTimeMap[value] = nowPlus10Seconds()
 
-			m.MapStepMapLock.Lock()
-			defer m.MapStepMapLock.Unlock()
-			m.MapStepMap[value] = Processing
+			m.MapJobMapLock.Lock()
+			defer m.MapJobMapLock.Unlock()
+			m.MapJobMap[value] = Processing
 
-			m.TaskNumberToFileMapLock.Lock()
-			defer m.TaskNumberToFileMapLock.Unlock()
-			m.TaskNumberToFileMap[m.TaskNumber] = value
 			reply.FileName = value
 			reply.NReduce = m.nReduce
 			reply.TaskNumber = m.TaskNumber
@@ -77,27 +72,28 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 	}
 }
 
-func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *FinishRequestReply) error {
-	taskNumber := args.TaskNumber
-	m.TaskNumberToFileMapLock.RLock()
-	defer m.TaskNumberToFileMapLock.RUnlock()
-	fileName := m.TaskNumberToFileMap[taskNumber]
-	m.MapStepMapLock.Lock()
-	defer m.MapStepMapLock.Unlock()
-	m.MapStepMap[fileName] = Proccessed
+func (m *Master) ReportMapJobComplete(args *MapJobFinishRequest, reply *MapJobFinishReply) error {
+	fileName := args.FileName
+	m.MapJobMapLock.Lock()
+	defer m.MapJobMapLock.Unlock()
+	m.MapJobMap[fileName] = Proccessed
 	return nil
 }
 
 func (m *Master) checkMapJobsAllDone() error {
-	m.MapStepMapLock.Lock()
-	defer m.MapStepMapLock.Unlock()
-	for _, status := range m.MapStepMap {
+	m.MapJobMapLock.Lock()
+	defer m.MapJobMapLock.Unlock()
+	for _, status := range m.MapJobMap {
 		if status != Proccessed {
 			return errors.New("map jobs are still working. please try again")
 		}
 	}
 	m.MapJobCompleteChannel <- 0
 	return nil
+}
+
+func nowPlus10Seconds() time.Time {
+	return time.Now().Add(time.Second * time.Duration(10))
 }
 
 func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) error {
@@ -109,7 +105,7 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 			m.ReduceJobMap[index] = Processing
 			m.ReduceJobSentTimeMapLock.Lock()
 			defer m.ReduceJobSentTimeMapLock.Unlock()
-			m.ReduceJobSentTimeMap[index] = time.Now().Add(time.Second * time.Duration(10))
+			m.ReduceJobSentTimeMap[index] = nowPlus10Seconds()
 			return nil
 		}
 	}
@@ -123,7 +119,7 @@ func (m *Master) GetReduceJob(args *ReduceJobRequest, reply *ReduceJobReply) err
 	}
 }
 
-func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *FinishRequestReply) error {
+func (m *Master) ReportReduceJobComplete(args *ReduceJobFinishRequest, reply *MapJobFinishReply) error {
 	taskNumber := args.TaskNumber
 	m.ReduceJobMapLock.Lock()
 	defer m.ReduceJobMapLock.Unlock()
@@ -137,10 +133,10 @@ func (m *Master) checkMapJobTimeout() {
 	for _, value := range m.AllFiles {
 		expirationTime, ok := m.MapJobSentTimeMap[value]
 		if ok && expirationTime.Before(time.Now()) {
-			m.MapStepMapLock.RLock()
-			defer m.MapStepMapLock.RUnlock()
-			mapStepMapStatus, mapStepMapOk := m.MapStepMap[value]
-			if !mapStepMapOk || mapStepMapStatus != Proccessed {
+			m.MapJobMapLock.RLock()
+			defer m.MapJobMapLock.RUnlock()
+			MapJobMapStatus, MapJobMapOk := m.MapJobMap[value]
+			if !MapJobMapOk || MapJobMapStatus != Proccessed {
 				delete(m.MapJobSentTimeMap, value)
 			}
 		}
@@ -253,17 +249,15 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 	m.AllFiles = files
 	m.MapJobSentTimeMap = make(map[string]time.Time)
-	m.MapStepMap = make(map[string]int)
-	m.TaskNumberToFileMap = make(map[int]string)
+	m.MapJobMap = make(map[string]int)
 	m.ReduceJobMap = make(map[int]int)
 	m.ReduceJobSentTimeMap = make(map[int]time.Time)
 	for i := 0; i < nReduce; i++ {
 		m.ReduceJobMap[i] = NotSent
 	}
 	m.nReduce = nReduce
-	m.TaskNumberToFileMapLock = sync.RWMutex{}
 	m.MapJobSentTimeMapLock = sync.RWMutex{}
-	m.MapStepMapLock = sync.RWMutex{}
+	m.MapJobMapLock = sync.RWMutex{}
 	m.ReduceJobMapLock = sync.RWMutex{}
 	m.MapJobCompleteChannel = make(chan int)
 	m.ReduceJobCompleteChannel = make(chan int)

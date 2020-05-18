@@ -22,10 +22,10 @@ type MapJobReply struct {
 }
 
 type MapJobFinishRequest struct {
-	TaskNumber int
+	FileName string
 }
 
-type FinishRequestReply struct {
+type MapJobFinishReply struct {
 }
 
 type ReduceJobRequest struct {
