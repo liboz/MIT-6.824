@@ -4,5 +4,8 @@ while [ $counter -le 100 ]
 do
 echo $counter
 sh ./test-mr.sh
+if [ $? -eq 1 ]; then 
+    exit 0
+fi
 ((counter++))
 done
