@@ -27,6 +27,8 @@ type Master struct {
 	MapStepMap               map[string]int
 	MapStepMapLock           sync.RWMutex
 	MapJobCompleteChannel    chan int
+	MapJobFinished           bool
+	MapJobFinishedLock       sync.RWMutex
 	AllFiles                 []string
 	nReduce                  int
 	TaskNumber               int
@@ -62,7 +64,12 @@ func (m *Master) GetMapJob(args *MapJobRequest, reply *MapJobReply) error {
 		}
 	}
 
-	mapJobsStillWorking := m.checkMapJobsAllDone()
+	m.MapJobFinishedLock.RLock()
+	defer m.MapJobFinishedLock.RUnlock()
+	var mapJobsStillWorking error
+	if !m.MapJobFinished {
+		mapJobsStillWorking = m.checkMapJobsAllDone()
+	}
 	if mapJobsStillWorking == nil {
 		return errors.New("no more map jobs available")
 	} else {
@@ -141,15 +148,15 @@ func (m *Master) checkMapJobTimeout() {
 }
 
 func (m *Master) checkMapJobTimeoutRepeatedly() {
-	doTimeoutCheck := true
 	for {
 		select {
 		case <-m.MapJobCompleteChannel:
-			doTimeoutCheck = false
+			m.MapJobFinishedLock.Lock()
+			m.MapJobFinished = true
+			defer m.MapJobFinishedLock.Unlock()
+			return
 		case <-time.After(time.Second):
-			if doTimeoutCheck {
-				m.checkMapJobTimeout()
-			}
+			m.checkMapJobTimeout()
 		}
 	}
 }
@@ -260,6 +267,8 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.ReduceJobMapLock = sync.RWMutex{}
 	m.MapJobCompleteChannel = make(chan int)
 	m.ReduceJobCompleteChannel = make(chan int)
+	m.MapJobFinished = false
+	m.MapJobFinishedLock = sync.RWMutex{}
 
 	go m.checkMapJobTimeoutRepeatedly()
 	go m.checkReduceJobTimeoutRepeatedly()
