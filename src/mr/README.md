@@ -1,6 +1,6 @@
 # MapReduce
 
-Copied original from https://pdos.csail.mit.edu/6.824/labs/lab-mr.html
+Copied from original at https://pdos.csail.mit.edu/6.824/labs/lab-mr.html
 
 
 ### Getting started
