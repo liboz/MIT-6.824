@@ -13,12 +13,21 @@ rm mr-out*
 
 go run mrmaster.go pg-*.txt
 ```
+
 Other Window:
+
 ```
 go run mrworker.go wc.so
 ```
 
 Test Script:
+
 ```
 sh ./test-mr.sh
+```
+
+Run many `test-mr.sh` many times:
+
+```
+sh ./testmanytimes.sh
 ```
