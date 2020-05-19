@@ -2,6 +2,8 @@
 
 Copied from original at https://pdos.csail.mit.edu/6.824/labs/lab-mr.html
 
+[Original paper](https://pdos.csail.mit.edu/6.824/papers/mapreduce.pdf)
+
 
 ### Getting started
 
