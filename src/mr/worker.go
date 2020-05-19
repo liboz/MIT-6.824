@@ -185,7 +185,7 @@ func GetMapJob() (*MapJobReply, bool, error) {
 	//log.Print("Trying to get map job on ", os.Getpid())
 	success, error := call("Master.GetMapJob", &args, &reply)
 	if success {
-		log.Print("Got map job  ", reply, " on ", os.Getpid())
+		//log.Print("Got map job  ", reply, " on ", os.Getpid())
 		return reply, true, error
 	}
 	return nil, false, error
@@ -211,7 +211,7 @@ func GetReduceJob() (*ReduceJobReply, bool, error) {
 	//log.Print("Trying to get reduce job on ", os.Getpid())
 	success, error := call("Master.GetReduceJob", &args, &reply)
 	if success {
-		log.Print("Got reduce job ", reply, " on ", os.Getpid())
+		//log.Print("Got reduce job ", reply, " on ", os.Getpid())
 		return reply, true, error
 	}
 	return nil, false, error
