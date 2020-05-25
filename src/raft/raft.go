@@ -390,34 +390,31 @@ func (rf *Raft) killed() bool {
 }
 
 func (rf *Raft) loopMaybeBecomeCandidate() {
-	for {
-		select {
-		case <-time.After(100 * time.Millisecond):
-			rf.mu.RLock()
-			nextElectionTime := rf.lastHeartbeat.Add(rf.electionTimeout)
+	for !rf.killed() {
+		rf.mu.RLock()
+		nextElectionTime := rf.lastHeartbeat.Add(rf.electionTimeout)
 
-			if rf.state == Follower && time.Now().After(nextElectionTime) && rf.votedFor == nil {
-				rf.mu.RUnlock()
-				rf.becomeCandidate()
-			} else {
-				rf.mu.RUnlock()
-			}
+		if rf.state == Follower && time.Now().After(nextElectionTime) && rf.votedFor == nil {
+			rf.mu.RUnlock()
+			rf.becomeCandidate()
+		} else {
+			rf.mu.RUnlock()
 		}
+		time.Sleep(100 * time.Millisecond)
+
 	}
 }
 
 func (rf *Raft) loopAppendEntries() {
-	for {
-		select {
-		case <-time.After(100 * time.Millisecond):
-			rf.mu.RLock()
-			if rf.state == Leader && !rf.killed() {
-				rf.mu.RUnlock()
-				rf.sendAppendEntriesToAll()
-			} else {
-				rf.mu.RUnlock()
-			}
+	for !rf.killed() {
+		rf.mu.RLock()
+		if rf.state == Leader {
+			rf.mu.RUnlock()
+			rf.sendAppendEntriesToAll()
+		} else {
+			rf.mu.RUnlock()
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
