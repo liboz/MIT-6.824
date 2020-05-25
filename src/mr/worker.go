@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/rpc"
 	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,8 +109,6 @@ func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) map[string
 	}
 
 	fileNames := make(map[string]string)
-	out, err := exec.Command("ls").Output()
-	log.Print(string(out[:]), err)
 	for key, elements := range intermediate {
 		fileName := fmt.Sprintf("mr-%d-%d", taskNumber, key)
 		file, err := ioutil.TempFile("tmp/", "tmp")
