@@ -112,8 +112,8 @@ func runMap(reply *MapJobReply, mapf func(string, string) []KeyValue) map[string
 	for key, elements := range intermediate {
 		fileName := fmt.Sprintf("mr-%d-%d", taskNumber, key)
 		file, err := ioutil.TempFile("tmp/", "tmp")
-		fileNames[file.Name()] = fileName
 		check(err)
+		fileNames[file.Name()] = fileName
 		enc := json.NewEncoder(file)
 		for _, element := range elements {
 			err := enc.Encode(&element)
