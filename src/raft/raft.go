@@ -193,6 +193,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		rf.lastHeartbeat = time.Now()
 		rf.votedFor = nil
+
+		if rf.state != Follower {
+			log.Print("Server id ", rf.me, " got converted from ", rf.state, " to Follower")
+		}
 		rf.state = Follower
 		rf.currentTerm = args.Term
 
@@ -233,16 +237,19 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	log.Print("Sending request for vote from id ", rf.me, " to id ", server, " for term ", args.Term)
+	//log.Print("Sending request for vote from id ", rf.me, " to id ", server, " for term ", args.Term)
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	if !ok {
-		log.Print("Some odd crap happened and the request for vote failed", args, reply)
+		//log.Print("Some odd crap happened and the request for vote failed", args, reply)
 	}
 	//log.Print("Recevied a reply from ", server, " as ", rf.me, ": ", reply)
 	return ok
 }
 
 func (rf *Raft) becomeCandidate() {
+	if rf.killed() {
+		return
+	}
 	rf.mu.Lock()
 	rf.currentTerm += 1
 	log.Print("Server ", rf.me, " becoming candidate for term ", rf.currentTerm)
@@ -291,11 +298,12 @@ func (rf *Raft) becomeCandidate() {
 				rf.state = Leader
 				rf.mu.Unlock()
 				log.Print("Enough servers have voted for index ", rf.me, ". Becoming leader for term ", rf.currentTerm)
+				rf.sendAppendEntriesToAll()
 				return
 			}
 		case <-time.After(rf.electionTimeout):
 			rf.mu.RLock()
-			if rf.currentTerm == Candidate {
+			if rf.state == Candidate {
 				rf.mu.RUnlock()
 				rf.becomeCandidate()
 				return
