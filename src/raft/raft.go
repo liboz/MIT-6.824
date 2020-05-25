@@ -280,6 +280,10 @@ func (rf *Raft) becomeCandidate() {
 		select {
 		case reply := <-resultChannel:
 			rf.mu.RLock()
+			if rf.state != Candidate {
+				// abort if we've converted to something else already (i.e. follower)
+				return
+			}
 			currentTerm := rf.currentTerm
 			rf.mu.RUnlock()
 			if reply.VoteGranted {
