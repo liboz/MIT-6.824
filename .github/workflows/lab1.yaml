@@ -7,10 +7,10 @@ jobs:
   test:
     timeout-minutes: 5
     runs-on: ubuntu-latest
-  steps:
+    steps:
     - uses: actions/checkout@master
     - uses: actions/setup-go@v2
     - name: Test
-      run:
-        working-directory: src/main
-        sh test-mr.sh
+      run: |
+        cd src/main
+        action: sh test-mr.sh
