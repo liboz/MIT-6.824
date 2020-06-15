@@ -53,6 +53,11 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
+type LogEntry struct {
+	Term int
+	Data interface{}
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -65,6 +70,13 @@ type Raft struct {
 	currentTerm int                 // latest term server has seen (initialized to 0 on first boot, increases monotonically)
 	votedFor    *int                // int of candidate in peers that received vote in currentterm (or null if none)
 	state       int                 // one of Follower, Candidate, or Leader
+	log         []LogEntry          //log entries; each entry contains commandfor state machine, and term when entry was received by leader
+	commitIndex int                 // index of highest log entry known to be committed (initialized to 0, increases monotonically)
+	lastApplied int                 //index of highest log entry applied to state machine (initialized to 0, increases monotonically)
+	nextIndex   []int               //for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
+	matchIndex  []int               // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
+
+	applyCh chan ApplyMsg
 
 	electionTimeout time.Duration // time before timingout election
 	lastHeartbeat   time.Time     // Time of last heartbeat
@@ -142,8 +154,12 @@ type RequestVoteReply struct {
 }
 
 type AppendEntriesArgs struct {
-	Term     int // leader's term
-	LeaderId int // index in peers of candidate requesting vote
+	Term         int        // leader's term
+	LeaderId     int        // index in peers of candidate requesting vote
+	PrevLogIndex int        //index of log entry immediately preceding new ones
+	PrevLogTerm  int        //term of prevLogIndex entry
+	entries      []LogEntry //log entries to store (empty for heartbeat; may send more than one for efficiency)
+	leaderCommit int        // leader’s commitIndex
 }
 
 type AppendEntriesReply struct {
@@ -164,12 +180,19 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			return
 		}
 		// Your code here (2A, 2B).
+
+		lastLogIndex := len(rf.log)
+		lastLogEntryTerm := 0
+		if lastLogIndex > 0 {
+			lastLogEntryTerm = rf.log[len(rf.log)-1].Term
+		}
 		if args.Term > rf.currentTerm {
 			rf.currentTerm = args.Term
 			rf.votedFor = &args.CandidateId
 			reply.Term = rf.currentTerm
 			reply.VoteGranted = true
-		} else if rf.votedFor == nil || args.CandidateId == *rf.votedFor {
+		} else if (args.LastLogTerm >= lastLogEntryTerm || args.LastLogIndex >= lastLogIndex) &&
+			(rf.votedFor == nil || args.CandidateId == *rf.votedFor) {
 			rf.votedFor = &args.CandidateId
 			reply.Term = rf.currentTerm
 			reply.VoteGranted = true
@@ -363,10 +386,15 @@ func (rf *Raft) sendAppendEntriesToAll() {
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.RLock()
+	term := rf.currentTerm
+	isLeader := rf.state == Leader
+	rf.mu.RUnlock()
 
 	// Your code here (2B).
+	if !isLeader {
+		return index, term, isLeader
+	}
 
 	return index, term, isLeader
 }
@@ -422,6 +450,22 @@ func (rf *Raft) loopAppendEntries() {
 	}
 }
 
+func (rf *Raft) sendToApplyCh() {
+	for !rf.killed() {
+		rf.mu.Lock()
+		if rf.commitIndex > rf.lastApplied {
+			msg := ApplyMsg{}
+			msg.Command = rf.log[rf.lastApplied]
+			msg.CommandIndex = rf.lastApplied
+			msg.CommandValid = true
+			rf.applyCh <- msg
+			rf.lastApplied += 1
+		}
+		rf.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -447,6 +491,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor = nil
 	rf.state = Follower
 	rf.electionTimeout = generateElectionTimeOut()
+	rf.log = []LogEntry{}
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.applyCh = applyCh
+	rf.nextIndex = make([]int, len(peers))
+	rf.matchIndex = make([]int, len(peers))
+	for i := range peers {
+		rf.nextIndex[i] = len(rf.log) + 1
+		rf.matchIndex[i] = 0
+	}
 	//log.Print("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
 	// Your initialization code here (2A, 2B, 2C).
@@ -456,6 +510,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go func() {
 		rf.loopAppendEntries()
+	}()
+
+	go func() {
+		rf.sendToApplyCh()
 	}()
 
 	// initialize from state persisted before a crash
