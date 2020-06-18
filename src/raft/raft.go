@@ -425,10 +425,10 @@ func (rf *Raft) sendAppendEntriesToAll() {
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	index := -1
-	rf.mu.RLock()
+	rf.mu.Lock()
 	term := rf.currentTerm
 	isLeader := rf.state == Leader
-	defer rf.mu.RUnlock()
+	defer rf.mu.Unlock()
 
 	// Your code here (2B).
 	if !isLeader {
