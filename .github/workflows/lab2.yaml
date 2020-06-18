@@ -14,3 +14,4 @@ jobs:
         run: |
           cd src/raft
           sudo go test -run 2A -race
+          sudo go test -run 2B -race

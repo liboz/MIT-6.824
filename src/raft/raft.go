@@ -158,8 +158,8 @@ type AppendEntriesArgs struct {
 	LeaderId     int        // index in peers of candidate requesting vote
 	PrevLogIndex int        //index of log entry immediately preceding new ones
 	PrevLogTerm  int        //term of prevLogIndex entry
-	entries      []LogEntry //log entries to store (empty for heartbeat; may send more than one for efficiency)
-	leaderCommit int        // leader’s commitIndex
+	Entries      []LogEntry //log entries to store (empty for heartbeat; may send more than one for efficiency)
+	LeaderCommit int        // leader’s commitIndex
 }
 
 type AppendEntriesReply struct {
@@ -204,6 +204,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
@@ -212,6 +219,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			reply.Term = rf.currentTerm
 			reply.Success = false
 			return
+		}
+
+		if args.PrevLogIndex != 0 && (len(rf.log) < 1 || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
+			reply.Term = rf.currentTerm
+			reply.Success = false
+			return
+		}
+
+		slice := rf.log[0:args.PrevLogIndex]
+		rf.log = append(slice, args.Entries...)
+		if args.LeaderCommit > rf.commitIndex {
+			rf.commitIndex = min(args.LeaderCommit, len(rf.log))
 		}
 
 		rf.lastHeartbeat = time.Now()
@@ -348,21 +367,41 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if !ok {
 		//log.Print("Some odd crap happened and the request for vote failed", args, reply)
 	}
+
 	return ok
 }
 
 func (rf *Raft) sendAppendEntriesToAll() {
 	rf.mu.RLock()
+
 	currentTerm := rf.currentTerm
+	leaderCommit := rf.commitIndex
+	var requests []*AppendEntriesArgs
+
+	for serverIndex, _ := range rf.peers {
+		if serverIndex != rf.me {
+			args := &AppendEntriesArgs{}
+			args.Term = currentTerm
+			args.LeaderId = rf.me
+			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
+			if args.PrevLogIndex != 0 {
+				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+			} else {
+				args.PrevLogTerm = -1
+			}
+			args.Entries = rf.log
+			args.LeaderCommit = leaderCommit
+			requests = append(requests, args)
+		} else {
+			requests = append(requests, nil)
+		}
+	}
 	rf.mu.RUnlock()
 	for serverIndex, _ := range rf.peers {
 		if serverIndex != rf.me {
 			go func(serverIndex int) {
-				args := &AppendEntriesArgs{}
-				args.Term = currentTerm
-				args.LeaderId = rf.me
 				reply := &AppendEntriesReply{}
-				rf.sendAppendEntries(serverIndex, args, reply)
+				rf.sendAppendEntries(serverIndex, requests[serverIndex], reply)
 			}(serverIndex)
 		}
 	}
@@ -389,12 +428,19 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.RLock()
 	term := rf.currentTerm
 	isLeader := rf.state == Leader
-	rf.mu.RUnlock()
+	defer rf.mu.RUnlock()
 
 	// Your code here (2B).
 	if !isLeader {
 		return index, term, isLeader
 	}
+
+	logEntry := LogEntry{}
+	logEntry.Data = command
+	logEntry.Term = term
+
+	rf.log = append(rf.log, logEntry)
+	index = len(rf.log)
 
 	return index, term, isLeader
 }
