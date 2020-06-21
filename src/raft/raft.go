@@ -542,7 +542,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 				rf.state = Follower
 				rf.mu.Unlock()
 				return
-			} else if !fullResponse.Response.Success {
+			} else if !fullResponse.Response.Success && rf.nextIndex[fullResponse.ServerIndex] != 1 {
 				rf.nextIndex[fullResponse.ServerIndex] -= 1
 			} else {
 				rf.matchIndex[fullResponse.ServerIndex] += len(fullResponse.Request.Entries)
