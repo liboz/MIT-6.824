@@ -58,6 +58,12 @@ type LogEntry struct {
 	Data interface{}
 }
 
+type AppendEntriesResponse struct {
+	Request     AppendEntriesArgs
+	Response    AppendEntriesReply
+	ServerIndex int
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -76,7 +82,8 @@ type Raft struct {
 	nextIndex   []int               //for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
 	matchIndex  []int               // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
-	applyCh chan ApplyMsg
+	applyCh                 chan ApplyMsg
+	appendEntriesResponseCh chan AppendEntriesResponse
 
 	electionTimeout time.Duration // time before timingout election
 	lastHeartbeat   time.Time     // Time of last heartbeat
@@ -221,7 +228,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			return
 		}
 
-		if args.PrevLogIndex != 0 && (len(rf.log) < 1 || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
+		if args.PrevLogIndex != 0 && len(args.Entries) > 0 && (len(rf.log) < 1 || rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm) {
 			reply.Term = rf.currentTerm
 			reply.Success = false
 			return
@@ -384,12 +391,17 @@ func (rf *Raft) sendAppendEntriesToAll() {
 			args.Term = currentTerm
 			args.LeaderId = rf.me
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
-			if args.PrevLogIndex != 0 {
+			if args.PrevLogIndex != 0 && args.PrevLogIndex < len(rf.log) {
 				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
 			} else {
 				args.PrevLogTerm = -1
 			}
-			args.Entries = rf.log
+			if args.PrevLogIndex != 0 {
+				args.Entries = rf.log[args.PrevLogIndex:]
+			} else {
+				args.Entries = rf.log
+			}
+
 			args.LeaderCommit = leaderCommit
 			requests = append(requests, args)
 		} else {
@@ -401,7 +413,13 @@ func (rf *Raft) sendAppendEntriesToAll() {
 		if serverIndex != rf.me {
 			go func(serverIndex int) {
 				reply := &AppendEntriesReply{}
+				fullResponse := AppendEntriesResponse{}
+				fullResponse.ServerIndex = serverIndex
+				fullResponse.Request = *requests[serverIndex]
 				rf.sendAppendEntries(serverIndex, requests[serverIndex], reply)
+
+				fullResponse.Response = *reply
+				rf.appendEntriesResponseCh <- fullResponse
 			}(serverIndex)
 		}
 	}
@@ -499,16 +517,60 @@ func (rf *Raft) loopAppendEntries() {
 func (rf *Raft) sendToApplyCh() {
 	for !rf.killed() {
 		rf.mu.Lock()
+		//log.Print("sending from server ", rf.me, rf.commitIndex, rf.lastApplied)
 		if rf.commitIndex > rf.lastApplied {
 			msg := ApplyMsg{}
-			msg.Command = rf.log[rf.lastApplied]
-			msg.CommandIndex = rf.lastApplied
+			msg.Command = rf.log[rf.lastApplied].Data
+			msg.CommandIndex = rf.lastApplied + 1
 			msg.CommandValid = true
 			rf.applyCh <- msg
 			rf.lastApplied += 1
 		}
 		rf.mu.Unlock()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (rf *Raft) listenToAppendEntriesResponseCh() {
+	for !rf.killed() {
+		fullResponse := <-rf.appendEntriesResponseCh
+		rf.mu.Lock()
+		if rf.state == Leader {
+			if fullResponse.Response.Term > rf.currentTerm {
+				// convert to follower
+				rf.currentTerm = fullResponse.Response.Term
+				rf.state = Follower
+				rf.mu.Unlock()
+				return
+			} else if !fullResponse.Response.Success {
+				rf.nextIndex[fullResponse.ServerIndex] -= 1
+			} else {
+				rf.matchIndex[fullResponse.ServerIndex] += len(fullResponse.Request.Entries)
+				rf.nextIndex[fullResponse.ServerIndex] += len(fullResponse.Request.Entries)
+			}
+
+			originalCommitIndex := rf.commitIndex
+			//log.Print("updating commitIndex maybe", originalCommitIndex, rf.matchIndex, fullResponse, ". log is ", rf.log)
+			for N := originalCommitIndex; N < len(rf.log); N++ {
+				if rf.log[N].Term != rf.currentTerm {
+					break
+				}
+				votesRequired := len(rf.peers)/2 + 1
+				//log.Print("N: ", N, ". term at log is ", rf.log[N].Term, ". current term is", rf.currentTerm)
+				for serverIndex, _ := range rf.peers {
+					if rf.matchIndex[serverIndex] >= N {
+						votesRequired -= 1
+					}
+					if votesRequired == 0 {
+						rf.commitIndex = N + 1
+						break
+					}
+				}
+			}
+
+		}
+
+		rf.mu.Unlock()
 	}
 }
 
@@ -547,6 +609,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		rf.nextIndex[i] = len(rf.log) + 1
 		rf.matchIndex[i] = 0
 	}
+	rf.appendEntriesResponseCh = make(chan AppendEntriesResponse)
 	//log.Print("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
 	// Your initialization code here (2A, 2B, 2C).
@@ -560,6 +623,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go func() {
 		rf.sendToApplyCh()
+	}()
+
+	go func() {
+		rf.listenToAppendEntriesResponseCh()
 	}()
 
 	// initialize from state persisted before a crash
