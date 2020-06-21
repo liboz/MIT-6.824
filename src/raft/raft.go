@@ -330,6 +330,7 @@ func (rf *Raft) becomeCandidate() {
 		case reply := <-resultChannel:
 			rf.mu.RLock()
 			if rf.state != Candidate {
+				rf.mu.RUnlock()
 				// abort if we've converted to something else already (i.e. follower)
 				return
 			}
@@ -523,10 +524,12 @@ func (rf *Raft) sendToApplyCh() {
 			msg.Command = rf.log[rf.lastApplied].Data
 			msg.CommandIndex = rf.lastApplied + 1
 			msg.CommandValid = true
+			rf.mu.Unlock()
 			rf.applyCh <- msg
 			rf.lastApplied += 1
+		} else {
+			rf.mu.Unlock()
 		}
-		rf.mu.Unlock()
 		time.Sleep(20 * time.Millisecond)
 	}
 }
