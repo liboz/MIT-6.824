@@ -31,3 +31,5 @@ Run many `test-mr.sh` many times:
 ```
 sh ./testmanytimes.sh
 ```
+
+# Raft
