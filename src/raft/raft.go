@@ -413,6 +413,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
+	currentTerm := rf.currentTerm
+	leaderCommit := rf.commitIndex
 	var requests []*AppendEntriesArgs
 
 	for serverIndex, _ := range rf.peers {
@@ -444,11 +446,7 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 
 func (rf *Raft) sendAppendEntriesToAll() {
 	rf.mu.RLock()
-
-	currentTerm := rf.currentTerm
-	leaderCommit := rf.commitIndex
 	requests := rf.makeAppendEntriesRequests()
-
 	rf.mu.RUnlock()
 	for serverIndex, _ := range rf.peers {
 		if serverIndex != rf.me {
