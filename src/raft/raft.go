@@ -186,7 +186,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = false
 			return
 		}
-		// Your code here (2A, 2B).
 
 		lastLogIndex := len(rf.log)
 		lastLogEntryTerm := 0
@@ -322,6 +321,7 @@ func (rf *Raft) becomeCandidate() {
 	rf.state = Candidate
 	rf.votedFor = &rf.me
 	rf.electionTimeout = generateElectionTimeOut()
+	rf.lastHeartbeat = time.Now()
 	currentTerm := rf.currentTerm
 	lastLogTerm := 0
 	lastLogIndex := 0
@@ -412,11 +412,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-func (rf *Raft) sendAppendEntriesToAll() {
-	rf.mu.RLock()
-
-	currentTerm := rf.currentTerm
-	leaderCommit := rf.commitIndex
+func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 	var requests []*AppendEntriesArgs
 
 	for serverIndex, _ := range rf.peers {
@@ -443,6 +439,16 @@ func (rf *Raft) sendAppendEntriesToAll() {
 			requests = append(requests, nil)
 		}
 	}
+	return requests
+}
+
+func (rf *Raft) sendAppendEntriesToAll() {
+	rf.mu.RLock()
+
+	currentTerm := rf.currentTerm
+	leaderCommit := rf.commitIndex
+	requests := rf.makeAppendEntriesRequests()
+
 	rf.mu.RUnlock()
 	for serverIndex, _ := range rf.peers {
 		if serverIndex != rf.me {
@@ -485,7 +491,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term := rf.currentTerm
 	isLeader := rf.state == Leader
 
-	// Your code here (2B).
 	if !isLeader {
 		return index, term, isLeader
 	}
