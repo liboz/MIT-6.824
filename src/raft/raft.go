@@ -493,8 +493,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	logEntry.Term = term
 
 	rf.log = append(rf.log, logEntry)
-	rf.matchIndex[rf.me] += 1
 	index = len(rf.log)
+	rf.matchIndex[rf.me] = index
 
 	return index, term, isLeader
 }
@@ -607,20 +607,20 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 func (rf *Raft) maybeUpdateCommitIndex() {
 	originalCommitIndex := rf.commitIndex
 	log.Print("updating commitIndex maybe", originalCommitIndex, rf.matchIndex, ". log is ", rf.log)
-	for N := originalCommitIndex; N < len(rf.log); N++ {
-		if rf.log[N].Term != rf.currentTerm {
+	for N := originalCommitIndex + 1; N <= len(rf.log); N++ {
+		if rf.log[N-1].Term != rf.currentTerm {
 			continue
 		}
 		votesRequired := len(rf.peers)/2 + 1
-		//log.Print("N: ", N, ". term at log is ", rf.log[N].Term, ". current term is", rf.currentTerm)
+		log.Print("N: ", N, ". term at log is ", rf.log[N-1].Term, ". current term is", rf.currentTerm, rf.matchIndex)
 		for serverIndex, _ := range rf.peers {
 			if rf.matchIndex[serverIndex] >= N {
 				votesRequired -= 1
 			}
 			if votesRequired == 0 {
-				log.Print("commit index updated to ", N+1)
-				rf.commitIndex = N + 1
-				continue
+				log.Print("commit index updated to ", N)
+				rf.commitIndex = N
+				break
 			}
 		}
 	}
