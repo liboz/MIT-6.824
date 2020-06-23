@@ -432,7 +432,9 @@ func (rf *Raft) sendAppendEntriesToAll() {
 			}
 
 			if args.PrevLogIndex < len(rf.log) {
-				args.Entries = rf.log[args.PrevLogIndex:]
+				entries := make([]LogEntry, len(rf.log[args.PrevLogIndex:]))
+				copy(entries, rf.log[args.PrevLogIndex:])
+				args.Entries = entries
 			}
 
 			args.LeaderCommit = leaderCommit
