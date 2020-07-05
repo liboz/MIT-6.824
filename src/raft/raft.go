@@ -194,6 +194,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		}
 		if args.Term > rf.currentTerm {
 			// update current term and remove votedFor and convert to follower
+			log.Print("Server ", rf.me, ": follower and updating term from ", args.Term, " compared to current term of ", rf.currentTerm)
 			rf.stepDown(args.Term)
 		}
 
@@ -230,6 +231,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			log.Print("AppendEntries received by server ", rf.me, " from server ", args.LeaderId, ". ", args.PrevLogIndex, rf.log, args.Entries,
 				args.PrevLogIndex != 0 && (args.PrevLogIndex > len(rf.log) || rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm))
 		}
+		rf.lastHeartbeat = time.Now()
 		if args.PrevLogIndex != 0 && (args.PrevLogIndex > len(rf.log) || rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm) {
 			reply.Term = rf.currentTerm
 			reply.Success = false
@@ -247,9 +249,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = min(args.LeaderCommit, len(rf.log))
 		}
-
-		rf.lastHeartbeat = time.Now()
-		rf.votedFor = -1
 
 		if rf.state != Follower {
 			log.Print("Server id ", rf.me, " got converted from ", rf.state, " to Follower")
@@ -585,6 +584,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 
 			if fullResponse.Response.Term > rf.currentTerm {
 				// convert to follower
+				log.Print("Server ", rf.me, ": stepping down as AppendEntries Response had term ", fullResponse.Response.Term, " compared to current term of ", rf.currentTerm)
 				rf.stepDown(fullResponse.Response.Term)
 				rf.mu.Unlock()
 				continue
