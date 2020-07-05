@@ -173,6 +173,9 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int  // currentTerm for leader to update itself
 	Success bool // true if follower contained entry matchingprevLogIndex and prevLogTerm
+	XTerm   int
+	XIndex  int
+	XLength int
 }
 
 //
@@ -236,6 +239,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.PrevLogIndex != 0 && (args.PrevLogIndex > len(rf.log) || rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm) {
 			reply.Term = rf.currentTerm
 			reply.Success = false
+			if args.PrevLogIndex > len(rf.log) {
+				reply.XTerm = -1
+				reply.XIndex = -1
+				reply.XLength = len(rf.log)
+			} else {
+				reply.XTerm = rf.log[args.PrevLogIndex-1].Term
+				reply.XIndex = rf.findFirstInLog(rf.log[args.PrevLogIndex-1].Term)
+				reply.XLength = -1
+			}
+
 			return
 		}
 
@@ -591,7 +604,15 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 				continue
 			} else if !fullResponse.Response.Success && rf.nextIndex[fullResponse.ServerIndex] != 1 {
 				log.Print("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
-				rf.nextIndex[fullResponse.ServerIndex] -= 1
+				lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
+				if fullResponse.Response.XLength != -1 {
+					rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XLength
+				} else if lastIndex != -1 {
+					rf.nextIndex[fullResponse.ServerIndex] = lastIndex
+				} else {
+					rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XIndex
+				}
+				log.Print("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
 			} else {
 				newLengthFromRequest := len(fullResponse.Request.Entries) + fullResponse.Request.PrevLogIndex
 				log.Print("updating matchIndex ", rf.matchIndex[fullResponse.ServerIndex], " and nextIndex ", rf.nextIndex[fullResponse.ServerIndex], " for server ", fullResponse.ServerIndex, " to ", newLengthFromRequest)
@@ -626,6 +647,24 @@ func (rf *Raft) maybeUpdateCommitIndex() {
 			}
 		}
 	}
+}
+
+func (rf *Raft) findFirstInLog(targetTerm int) int {
+	for i, logEntry := range rf.log {
+		if logEntry.Term == targetTerm {
+			return i + 1 // 1 based indexing
+		}
+	}
+	return -1 // should never happen
+}
+
+func (rf *Raft) findLastInLog(targetTerm int) int {
+	for i := len(rf.log) - 1; i >= 0; i-- {
+		if rf.log[i].Term == targetTerm {
+			return i + 1 // 1 based indexing
+		}
+	}
+	return -1
 }
 
 //
