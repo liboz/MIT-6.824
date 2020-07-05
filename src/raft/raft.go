@@ -113,6 +113,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
 	data := w.Bytes()
+	log.Print("persisting on server ", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 	rf.persister.SaveRaftState(data)
 }
 
@@ -132,7 +133,7 @@ func (rf *Raft) readPersist(data []byte) {
 			d.Decode(&votedFor) != nil || d.Decode(&savedLog) != nil {
 			log.Print("error reading persisted")
 		} else {
-			log.Print("persistedLog", currentTerm, votedFor, savedLog)
+			log.Print("persistedLog on server ", rf.me, " is:", currentTerm, votedFor, savedLog)
 			rf.currentTerm = currentTerm
 			rf.votedFor = votedFor
 			rf.log = savedLog
@@ -241,7 +242,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.Term > rf.currentTerm {
 			rf.votedFor = -1
 			rf.currentTerm = args.Term
-			rf.persist()
 		}
 
 		slice := rf.log[0:args.PrevLogIndex]
@@ -249,6 +249,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = min(args.LeaderCommit, len(rf.log))
 		}
+		rf.persist()
 
 		if rf.state != Follower {
 			log.Print("Server id ", rf.me, " got converted from ", rf.state, " to Follower")
