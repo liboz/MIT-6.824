@@ -568,17 +568,19 @@ func (rf *Raft) sendToApplyCh() {
 	for !rf.killed() {
 		rf.mu.Lock()
 		if rf.commitIndex > rf.lastApplied {
-			log.Print("sending from server ", rf.me, rf.log, rf.commitIndex, rf.log[rf.lastApplied], rf.lastApplied+1)
-			msg := ApplyMsg{}
+			for rf.commitIndex > rf.lastApplied {
+				log.Print("sending from server ", rf.me, rf.log, rf.commitIndex, rf.log[rf.lastApplied], rf.lastApplied+1)
+				msg := ApplyMsg{}
 
-			msg.Command = rf.log[rf.lastApplied].Data
+				msg.Command = rf.log[rf.lastApplied].Data
 
-			msg.CommandIndex = rf.lastApplied + 1
-			msg.CommandValid = true
-			rf.mu.Unlock()
-			rf.applyCh <- msg
-			rf.mu.Lock()
-			rf.lastApplied += 1
+				msg.CommandIndex = rf.lastApplied + 1
+				msg.CommandValid = true
+				rf.mu.Unlock()
+				rf.applyCh <- msg
+				rf.mu.Lock()
+				rf.lastApplied += 1
+			}
 			rf.mu.Unlock()
 		} else {
 			rf.mu.Unlock()
