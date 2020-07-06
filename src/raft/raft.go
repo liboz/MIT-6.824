@@ -606,7 +606,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 				log.Print("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
 				lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
 				if fullResponse.Response.XLength != -1 {
-					rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XLength
+					rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
 				} else if lastIndex != -1 {
 					rf.nextIndex[fullResponse.ServerIndex] = lastIndex
 				} else {
