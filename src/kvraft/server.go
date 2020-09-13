@@ -1,12 +1,13 @@
 package kvraft
 
 import (
-	"../labgob"
-	"../labrpc"
 	"log"
-	"../raft"
 	"sync"
 	"sync/atomic"
+
+	"../labgob"
+	"../labrpc"
+	"../raft"
 )
 
 const Debug = 0
@@ -18,8 +19,17 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+func DPrint(v ...interface{}) (n int, err error) {
+	if Debug > 0 {
+		log.Print(v...)
+	}
+	return
+}
 
 type Op struct {
+	Key           string
+	Value         string
+	OperationType string
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
@@ -33,17 +43,87 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
+	KV           map[string]string
 
 	// Your definitions here.
 }
 
-
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	if !kv.killed() {
+		kv.mu.Lock()
+		defer kv.mu.Unlock()
+		op := Op{}
+		op.Key = args.Key
+		op.OperationType = GET
+		_, _, isLeader := kv.rf.Start(op)
+		if isLeader {
+			log.Printf("%d: listening for Get", kv.me)
+			msg := <-kv.applyCh
+			log.Printf("%d: received Get message %v", kv.me, msg)
+			val, err := kv.handleMessage(msg)
+			reply.Err = err
+			reply.Value = val
+			return
+		} else {
+			reply.Err = ErrWrongLeader
+			return
+		}
+	}
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+	if !kv.killed() {
+		kv.mu.Lock()
+		defer kv.mu.Unlock()
+		op := Op{}
+		op.Key = args.Key
+		op.Value = args.Value
+		op.OperationType = args.Op
+		_, _, isLeader := kv.rf.Start(op)
+		if isLeader {
+			reply.Err = OK
+			log.Printf("%d: listening for %s", kv.me, args.Op)
+			msg := <-kv.applyCh
+			log.Printf("%d: received %s message %v", kv.me, args.Op, msg)
+			kv.handleMessage(msg)
+			return
+		} else {
+			reply.Err = ErrWrongLeader
+			return
+		}
+	}
+}
+
+func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
+	if msg.CommandValid {
+		command := msg.Command.(Op)
+		commandType := command.OperationType
+		switch commandType {
+		case PUT:
+			kv.KV[command.Key] = command.Value
+		case APPEND:
+			val, ok := kv.KV[command.Key]
+			if ok {
+				kv.KV[command.Key] = val + command.Value
+			} else {
+				kv.KV[command.Key] = command.Value
+			}
+		case GET:
+			val, ok := kv.KV[command.Key]
+			if ok {
+				return val, OK
+			} else {
+				return val, ErrNoKey
+			}
+		default:
+			log.Printf("this should not happen!!!!!!!!!!!!!!: %v", msg)
+			panic("REALLY BAD")
+		}
+		log.Print(kv.KV)
+	} else {
+		log.Printf("message skipped: %v", msg)
+	}
+	return "", OK
 }
 
 //
@@ -95,7 +175,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
-	// You may need initialization code here.
+	kv.KV = make(map[string]string)
 
 	return kv
 }

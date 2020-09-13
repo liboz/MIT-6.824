@@ -85,11 +85,6 @@ type Raft struct {
 
 	electionTimeout time.Duration // time before timingout election
 	lastHeartbeat   time.Time     // Time of last heartbeat
-
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
-
 }
 
 // return currentTerm and whether this server

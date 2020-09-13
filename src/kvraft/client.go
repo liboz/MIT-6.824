@@ -1,13 +1,18 @@
 package kvraft
 
-import "../labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"log"
+	"math/big"
+	"time"
 
+	"../labrpc"
+)
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+	lastLeaderServer int
 }
 
 func nrand() int64 {
@@ -20,6 +25,7 @@ func nrand() int64 {
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
+	ck.lastLeaderServer = -1
 	// You'll have to add code here.
 	return ck
 }
@@ -37,8 +43,26 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
-
-	// You will have to modify this function.
+	args := &GetArgs{}
+	args.Key = key
+	for {
+		var initialServer int
+		if ck.lastLeaderServer == -1 {
+			initialServer = 0
+		} else {
+			initialServer = ck.lastLeaderServer
+		}
+		for i := initialServer; i < initialServer+len(ck.servers); i++ {
+			reply := &GetReply{}
+			ok := ck.servers[i%len(ck.servers)].Call("KVServer.Get", args, reply)
+			if ok && reply.Err == OK {
+				ck.lastLeaderServer = i % len(ck.servers)
+				log.Printf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
+				return reply.Value
+			}
+		}
+		time.Sleep(time.Duration(100 * time.Millisecond))
+	}
 	return ""
 }
 
@@ -53,7 +77,28 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// You will have to modify this function.
+	args := &PutAppendArgs{}
+	args.Key = key
+	args.Value = value
+	args.Op = op
+	for {
+		var initialServer int
+		if ck.lastLeaderServer == -1 {
+			initialServer = 0
+		} else {
+			initialServer = ck.lastLeaderServer
+		}
+		for i := initialServer; i < initialServer+len(ck.servers); i++ {
+			reply := &PutAppendReply{}
+			ok := ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
+			if ok && reply.Err == OK {
+				ck.lastLeaderServer = i % len(ck.servers)
+				log.Printf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
+				return
+			}
+		}
+		time.Sleep(time.Duration(100 * time.Millisecond))
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
