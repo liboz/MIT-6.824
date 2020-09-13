@@ -13,6 +13,8 @@ type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
 	lastLeaderServer int
+	id               int64
+	operationNumber  int
 }
 
 func nrand() int64 {
@@ -26,6 +28,8 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	ck.lastLeaderServer = -1
+	ck.id = nrand()
+	ck.operationNumber = 0
 	// You'll have to add code here.
 	return ck
 }
@@ -77,7 +81,10 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
+	ck.operationNumber += 1
 	args := &PutAppendArgs{}
+	args.ClientId = ck.id
+	args.ClientOperationNumber = ck.operationNumber
 	args.Key = key
 	args.Value = value
 	args.Op = op

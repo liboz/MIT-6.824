@@ -27,9 +27,11 @@ func DPrint(v ...interface{}) (n int, err error) {
 }
 
 type Op struct {
-	Key           string
-	Value         string
-	OperationType string
+	Key                   string
+	Value                 string
+	OperationType         string
+	ClientId              int64
+	ClientOperationNumber int
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
@@ -44,6 +46,7 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 	KV           map[string]string
+	seen         map[int64]int
 
 	// Your definitions here.
 }
@@ -79,6 +82,8 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		op.Key = args.Key
 		op.Value = args.Value
 		op.OperationType = args.Op
+		op.ClientId = args.ClientId
+		op.ClientOperationNumber = args.ClientOperationNumber
 		_, _, isLeader := kv.rf.Start(op)
 		if isLeader {
 			reply.Err = OK
@@ -94,6 +99,15 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 }
 
+func appendToKV(KV map[string]string, key string, value string) {
+	val, ok := KV[key]
+	if ok {
+		KV[key] = val + value
+	} else {
+		KV[key] = value
+	}
+}
+
 func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
 		command := msg.Command.(Op)
@@ -102,11 +116,12 @@ func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
 		case PUT:
 			kv.KV[command.Key] = command.Value
 		case APPEND:
-			val, ok := kv.KV[command.Key]
-			if ok {
-				kv.KV[command.Key] = val + command.Value
+			previousOperationNumber, ok := kv.seen[command.ClientId]
+			if !ok || previousOperationNumber < command.ClientOperationNumber {
+				appendToKV(kv.KV, command.Key, command.Value)
+				kv.seen[command.ClientId] = command.ClientOperationNumber
 			} else {
-				kv.KV[command.Key] = command.Value
+				log.Printf("skipped message id %d as we have already seen it", command.ClientOperationNumber)
 			}
 		case GET:
 			val, ok := kv.KV[command.Key]
@@ -176,6 +191,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	kv.KV = make(map[string]string)
+	kv.seen = make(map[int64]int)
 
 	return kv
 }
