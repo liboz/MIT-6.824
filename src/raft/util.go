@@ -40,6 +40,7 @@ func min(a, b int) int {
 func parseEnvOrDefault(envVarName string, defaultValue int) int {
 	raftDebug := os.Getenv(envVarName)
 	i, err := strconv.Atoi(raftDebug)
+	log.Print(i, err, envVarName)
 	if err != nil {
 		return defaultValue
 	} else {
