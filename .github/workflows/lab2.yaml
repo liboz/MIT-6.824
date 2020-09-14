@@ -11,6 +11,7 @@ jobs:
       - uses: actions/checkout@master
       - uses: actions/setup-go@v2
       - name: Test
+        env: RAFT_DEBUG: 1
         run: |
           cd src/raft
           sudo go test -run 2A -race
