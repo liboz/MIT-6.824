@@ -47,7 +47,9 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
+	ck.operationNumber += 1
 	args := &GetArgs{}
+	args.ClientOperationNumber = ck.operationNumber
 	args.Key = key
 	for {
 		var initialServer int

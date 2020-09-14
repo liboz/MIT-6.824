@@ -58,12 +58,12 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		op := Op{}
 		op.Key = args.Key
 		op.OperationType = GET
-		_, _, isLeader := kv.rf.Start(op)
+		op.ClientOperationNumber = args.ClientOperationNumber
+		expectedIndex, _, isLeader := kv.rf.Start(op)
 		if isLeader {
-			log.Printf("%d: listening for Get", kv.me)
-			msg := <-kv.applyCh
-			log.Printf("%d: received Get message %v", kv.me, msg)
-			val, err := kv.handleMessage(msg)
+			log.Printf("%d: listening for Get with expectedIndex %d", kv.me, expectedIndex)
+			val, err := kv.handleMessage(expectedIndex, args.ClientOperationNumber)
+			log.Printf("%d: received Get message %v", kv.me, val)
 			reply.Err = err
 			reply.Value = val
 			return
@@ -84,13 +84,11 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		op.OperationType = args.Op
 		op.ClientId = args.ClientId
 		op.ClientOperationNumber = args.ClientOperationNumber
-		_, _, isLeader := kv.rf.Start(op)
+		expectedIndex, _, isLeader := kv.rf.Start(op)
 		if isLeader {
-			reply.Err = OK
-			log.Printf("%d: listening for %s", kv.me, args.Op)
-			msg := <-kv.applyCh
-			log.Printf("%d: received %s message %v", kv.me, args.Op, msg)
-			kv.handleMessage(msg)
+			log.Printf("%d: listening for %s with expectedIndex %d", kv.me, args.Op, expectedIndex)
+			_, err := kv.handleMessage(expectedIndex, args.ClientOperationNumber)
+			reply.Err = err
 			return
 		} else {
 			reply.Err = ErrWrongLeader
@@ -108,7 +106,7 @@ func appendToKV(KV map[string]string, key string, value string) {
 	}
 }
 
-func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
+func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
 		command := msg.Command.(Op)
 		commandType := command.OperationType
@@ -128,7 +126,7 @@ func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
 			if ok {
 				return val, OK
 			} else {
-				return val, ErrNoKey
+				return "", ErrNoKey
 			}
 		default:
 			log.Printf("this should not happen!!!!!!!!!!!!!!: %v", msg)
@@ -139,6 +137,24 @@ func (kv *KVServer) handleMessage(msg raft.ApplyMsg) (string, Err) {
 		log.Printf("message skipped: %v", msg)
 	}
 	return "", OK
+}
+
+func (kv *KVServer) handleMessage(expectedIndex int, expectedClientOperationNumber int) (string, Err) {
+	var val string
+	var err Err
+	var msg raft.ApplyMsg
+	for msg = range kv.applyCh {
+		val, err = kv.processApplyChMessage(msg)
+		if expectedIndex == msg.CommandIndex {
+			break
+		}
+	}
+	command := msg.Command.(Op)
+	if command.ClientOperationNumber != expectedClientOperationNumber {
+		log.Printf("%d: No Longer leader", kv.me)
+		return "", ErrWrongLeader
+	}
+	return val, err
 }
 
 //
