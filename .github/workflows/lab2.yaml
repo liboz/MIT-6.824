@@ -15,7 +15,6 @@ jobs:
           RAFT_DEBUG: 1
         run: |
           cd src/raft
-          echo $RAFT_DEBUG
-          sudo go test -run 2A -race
-          sudo go test -run 2B -race
-          sudo go test -run 2C -race
+          go test -run 2A -race
+          go test -run 2B -race
+          go test -run 2C -race
