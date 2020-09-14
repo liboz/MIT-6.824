@@ -13,4 +13,4 @@ jobs:
       - name: Test
         run: |
           cd src/main
-          sudo sh test-mr.sh
+          sh test-mr.sh
