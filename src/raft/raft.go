@@ -19,6 +19,7 @@ package raft
 
 import (
 	"bytes"
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -107,7 +108,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
 	data := w.Bytes()
-	DPrint("persisting on server ", rf.me, rf.currentTerm, rf.votedFor, rf.log)
+	DPrintf("persisting on server %d; term %d; votedFor %d; log: %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 	rf.persister.SaveRaftState(data)
 }
 
@@ -377,7 +378,7 @@ func (rf *Raft) becomeCandidate() {
 				rf.state = Leader
 				rf.initializeMatchAndNextIndex()
 				rf.mu.Unlock()
-				DPrint("Enough servers have voted for index ", rf.me, ". Becoming leader for term ", rf.currentTerm)
+				log.Printf("Enough servers have voted for index %d. Becoming leader for term %d", rf.me, rf.currentTerm)
 				rf.sendAppendEntriesToAll()
 				return
 			}
@@ -563,11 +564,9 @@ func (rf *Raft) sendToApplyCh() {
 		rf.mu.Lock()
 		if rf.commitIndex > rf.lastApplied {
 			for rf.commitIndex > rf.lastApplied {
-				DPrint("sending from server ", rf.me, rf.log, rf.commitIndex, rf.log[rf.lastApplied], rf.lastApplied+1)
+				log.Printf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, rf.log[rf.lastApplied], rf.commitIndex, rf.lastApplied+1)
 				msg := ApplyMsg{}
-
 				msg.Command = rf.log[rf.lastApplied].Data
-
 				msg.CommandIndex = rf.lastApplied + 1
 				msg.CommandValid = true
 				rf.mu.Unlock()

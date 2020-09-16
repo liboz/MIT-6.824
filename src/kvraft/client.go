@@ -9,6 +9,10 @@ import (
 	"../labrpc"
 )
 
+const (
+	TimeoutInterval = time.Duration(3 * time.Second)
+)
+
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
@@ -34,6 +38,16 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	return ck
 }
 
+func (ck *Clerk) getInitialServer() int {
+	var initialServer int
+	if ck.lastLeaderServer == -1 {
+		initialServer = 0
+	} else {
+		initialServer = ck.lastLeaderServer
+	}
+	return initialServer
+}
+
 //
 // fetch the current value for a key.
 // returns "" if the key does not exist.
@@ -51,22 +65,33 @@ func (ck *Clerk) Get(key string) string {
 	args := &GetArgs{}
 	args.ClientOperationNumber = ck.operationNumber
 	args.Key = key
+
+	responseCh := make(chan *GetReply)
+
+	initialServer := ck.getInitialServer()
 	for {
-		var initialServer int
-		if ck.lastLeaderServer == -1 {
-			initialServer = 0
-		} else {
-			initialServer = ck.lastLeaderServer
-		}
+
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
-			reply := &GetReply{}
-			ok := ck.servers[i%len(ck.servers)].Call("KVServer.Get", args, reply)
-			if ok && reply.Err == OK {
-				ck.lastLeaderServer = i % len(ck.servers)
-				log.Printf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
-				return reply.Value
+			go func(i int) {
+				reply := &GetReply{}
+				ck.servers[i%len(ck.servers)].Call("KVServer.Get", args, reply)
+				responseCh <- reply
+			}(i)
+
+			select {
+			case <-time.After(TimeoutInterval):
+				log.Printf("timing out Get request to %d", i)
+				break
+			case reply := <-responseCh:
+				if reply.Err == OK {
+					ck.lastLeaderServer = i % len(ck.servers)
+					log.Printf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
+					return reply.Value
+				}
 			}
+
 		}
+
 		time.Sleep(time.Duration(100 * time.Millisecond))
 	}
 	return ""
@@ -90,20 +115,27 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Key = key
 	args.Value = value
 	args.Op = op
+	initialServer := ck.getInitialServer()
+	responseCh := make(chan *PutAppendReply)
 	for {
-		var initialServer int
-		if ck.lastLeaderServer == -1 {
-			initialServer = 0
-		} else {
-			initialServer = ck.lastLeaderServer
-		}
+
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
-			reply := &PutAppendReply{}
-			ok := ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
-			if ok && reply.Err == OK {
-				ck.lastLeaderServer = i % len(ck.servers)
-				log.Printf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
-				return
+			go func(i int) {
+				reply := &PutAppendReply{}
+				ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
+				responseCh <- reply
+			}(i)
+			select {
+			case <-time.After(TimeoutInterval):
+				log.Printf("timing out PutAppend request to %d", i)
+				break
+			case reply := <-responseCh:
+				log.Printf("client reply from %d: %v", i, reply)
+				if reply.Err == OK {
+					ck.lastLeaderServer = i % len(ck.servers)
+					log.Printf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
+					return
+				}
 			}
 		}
 		time.Sleep(time.Duration(100 * time.Millisecond))

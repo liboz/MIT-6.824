@@ -4,6 +4,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"../labgob"
 	"../labrpc"
@@ -47,53 +48,86 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 	KV           map[string]string
 	seen         map[int64]int
+	applyChanMap map[int]ApplyChanMapItem
+	killCh       chan bool
 
 	// Your definitions here.
 }
 
+type ApplyChanMapItem struct {
+	ch                            chan KVMapItem
+	expectedClientOperationNumber int
+}
+
+type KVMapItem struct {
+	err Err
+	val string
+}
+
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	if !kv.killed() {
-		kv.mu.Lock()
-		defer kv.mu.Unlock()
 		op := Op{}
 		op.Key = args.Key
 		op.OperationType = GET
 		op.ClientOperationNumber = args.ClientOperationNumber
-		expectedIndex, _, isLeader := kv.rf.Start(op)
-		if isLeader {
-			log.Printf("%d: listening for Get with expectedIndex %d", kv.me, expectedIndex)
-			val, err := kv.handleMessage(expectedIndex, args.ClientOperationNumber)
-			log.Printf("%d: received Get message %v", kv.me, val)
-			reply.Err = err
-			reply.Value = val
-			return
-		} else {
-			reply.Err = ErrWrongLeader
-			return
-		}
+		val, err := kv.startOp(op, "Get")
+		reply.Value = val
+		reply.Err = err
+		return
 	}
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	if !kv.killed() {
-		kv.mu.Lock()
-		defer kv.mu.Unlock()
 		op := Op{}
 		op.Key = args.Key
 		op.Value = args.Value
 		op.OperationType = args.Op
 		op.ClientId = args.ClientId
 		op.ClientOperationNumber = args.ClientOperationNumber
-		expectedIndex, _, isLeader := kv.rf.Start(op)
-		if isLeader {
-			log.Printf("%d: listening for %s with expectedIndex %d", kv.me, args.Op, expectedIndex)
-			_, err := kv.handleMessage(expectedIndex, args.ClientOperationNumber)
-			reply.Err = err
-			return
-		} else {
-			reply.Err = ErrWrongLeader
-			return
+		_, err := kv.startOp(op, args.Op)
+		reply.Err = err
+		return
+	}
+}
+
+func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
+	kv.mu.Lock()
+	expectedIndex, _, isLeader := kv.rf.Start(op)
+	kv.mu.Unlock()
+	if isLeader {
+		log.Printf("%d: listening for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
+		log.Print("got lock before add to dict")
+		msgCh := make(chan KVMapItem)
+		kv.mu.Lock()
+		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedClientOperationNumber: op.ClientOperationNumber}
+		kv.mu.Unlock()
+		log.Print("release lock after add to dict")
+
+		select {
+		case <-time.After(TimeoutInterval):
+			log.Printf("%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
+			log.Print("got lock before deleting from dict in timeout")
+
+			kv.mu.Lock()
+			defer kv.mu.Unlock()
+			delete(kv.applyChanMap, expectedIndex)
+			log.Print("release lock deleting from dict in timeout")
+
+			return "", ErrWrongLeader
+		case msg := <-msgCh:
+			log.Printf("%d: reply: %v", kv.me, msg)
+			log.Print("got lock before deleting from dict")
+
+			kv.mu.Lock()
+			defer kv.mu.Unlock()
+			delete(kv.applyChanMap, expectedIndex)
+			log.Print("release lock deleting from dict")
+
+			return msg.val, msg.err
 		}
+	} else {
+		return "", ErrWrongLeader
 	}
 }
 
@@ -108,8 +142,10 @@ func appendToKV(KV map[string]string, key string, value string) {
 
 func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
+		log.Printf("%d: Got message: %v", kv.me, msg)
 		command := msg.Command.(Op)
 		commandType := command.OperationType
+
 		switch commandType {
 		case PUT:
 			kv.KV[command.Key] = command.Value
@@ -132,29 +168,41 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 			log.Printf("this should not happen!!!!!!!!!!!!!!: %v", msg)
 			panic("REALLY BAD")
 		}
-		log.Print(kv.KV)
+		log.Printf("%d: %v", kv.me, kv.KV)
 	} else {
 		log.Printf("message skipped: %v", msg)
 	}
 	return "", OK
 }
 
-func (kv *KVServer) handleMessage(expectedIndex int, expectedClientOperationNumber int) (string, Err) {
-	var val string
-	var err Err
-	var msg raft.ApplyMsg
-	for msg = range kv.applyCh {
-		val, err = kv.processApplyChMessage(msg)
-		if expectedIndex == msg.CommandIndex {
-			break
+func (kv *KVServer) getMessages() {
+	for {
+		select {
+		case msg := <-kv.applyCh:
+			kv.mu.Lock()
+			val, err := kv.processApplyChMessage(msg)
+			kv.sendMessageToApplyChanMap(msg, val, err)
+			kv.mu.Unlock()
+		case <-kv.killCh:
+			return
 		}
 	}
+}
+
+func (kv *KVServer) sendMessageToApplyChanMap(msg raft.ApplyMsg, val string, err Err) {
 	command := msg.Command.(Op)
-	if command.ClientOperationNumber != expectedClientOperationNumber {
-		log.Printf("%d: No Longer leader", kv.me)
-		return "", ErrWrongLeader
+	index := msg.CommandIndex
+	applyChanMapItem, ok := kv.applyChanMap[index]
+	if ok {
+		messageCh := applyChanMapItem.ch
+		expectedClientOperationNumber := applyChanMapItem.expectedClientOperationNumber
+		if command.ClientOperationNumber != expectedClientOperationNumber {
+			log.Printf("%d: No Longer leader", kv.me)
+			messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
+		} else {
+			messageCh <- KVMapItem{val: val, err: err}
+		}
 	}
-	return val, err
 }
 
 //
@@ -171,6 +219,7 @@ func (kv *KVServer) Kill() {
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
 	// Your code here, if desired.
+	kv.killCh <- true
 }
 
 func (kv *KVServer) killed() bool {
@@ -208,6 +257,11 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv.KV = make(map[string]string)
 	kv.seen = make(map[int64]int)
+	kv.applyChanMap = make(map[int]ApplyChanMapItem)
+	kv.killCh = make(chan bool)
+	go func() {
+		kv.getMessages()
+	}()
 
 	return kv
 }
