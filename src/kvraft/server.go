@@ -55,8 +55,8 @@ type KVServer struct {
 }
 
 type ApplyChanMapItem struct {
-	ch                            chan KVMapItem
-	expectedClientOperationNumber int
+	ch                chan KVMapItem
+	expectedOperation Op
 }
 
 type KVMapItem struct {
@@ -97,32 +97,24 @@ func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
 	kv.mu.Unlock()
 	if isLeader {
 		log.Printf("%d: listening for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
-		log.Print("got lock before add to dict")
 		msgCh := make(chan KVMapItem)
 		kv.mu.Lock()
-		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedClientOperationNumber: op.ClientOperationNumber}
+		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedOperation: op}
 		kv.mu.Unlock()
-		log.Print("release lock after add to dict")
 
 		select {
 		case <-time.After(TimeoutInterval):
 			log.Printf("%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
-			log.Print("got lock before deleting from dict in timeout")
-
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
 			delete(kv.applyChanMap, expectedIndex)
-			log.Print("release lock deleting from dict in timeout")
 
 			return "", ErrWrongLeader
 		case msg := <-msgCh:
-			log.Printf("%d: reply: %v", kv.me, msg)
-			log.Print("got lock before deleting from dict")
-
+			log.Printf("%d: reply: %v, original op %v and opType %s", kv.me, msg, op, OpType)
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
 			delete(kv.applyChanMap, expectedIndex)
-			log.Print("release lock deleting from dict")
 
 			return msg.val, msg.err
 		}
@@ -195,8 +187,8 @@ func (kv *KVServer) sendMessageToApplyChanMap(msg raft.ApplyMsg, val string, err
 	applyChanMapItem, ok := kv.applyChanMap[index]
 	if ok {
 		messageCh := applyChanMapItem.ch
-		expectedClientOperationNumber := applyChanMapItem.expectedClientOperationNumber
-		if command.ClientOperationNumber != expectedClientOperationNumber {
+		expectedOperation := applyChanMapItem.expectedOperation
+		if command != expectedOperation {
 			log.Printf("%d: No Longer leader", kv.me)
 			messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
 		} else {

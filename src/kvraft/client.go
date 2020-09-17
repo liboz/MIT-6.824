@@ -63,6 +63,7 @@ func (ck *Clerk) getInitialServer() int {
 func (ck *Clerk) Get(key string) string {
 	ck.operationNumber += 1
 	args := &GetArgs{}
+	args.ClientId = ck.id
 	args.ClientOperationNumber = ck.operationNumber
 	args.Key = key
 
@@ -122,6 +123,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &PutAppendReply{}
+				log.Printf("Sending request from client to server %d", i)
 				ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
 				responseCh <- reply
 			}(i)
