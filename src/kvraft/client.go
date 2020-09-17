@@ -2,7 +2,6 @@ package kvraft
 
 import (
 	"crypto/rand"
-	"log"
 	"math/big"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 )
 
 const (
-	TimeoutInterval = time.Duration(3 * time.Second)
+	TimeoutInterval = time.Duration(1 * time.Second)
 )
 
 type Clerk struct {
@@ -81,12 +80,12 @@ func (ck *Clerk) Get(key string) string {
 
 			select {
 			case <-time.After(TimeoutInterval):
-				log.Printf("timing out Get request to %d", i)
+				DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
 				if reply.Err == OK {
 					ck.lastLeaderServer = i % len(ck.servers)
-					log.Printf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
+					DPrintf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
 					return reply.Value
 				}
 			}
@@ -123,19 +122,19 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &PutAppendReply{}
-				log.Printf("Sending request from client to server %d", i)
+				DPrintf("Sending request from client to server %d", i)
 				ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
 				responseCh <- reply
 			}(i)
 			select {
 			case <-time.After(TimeoutInterval):
-				log.Printf("timing out PutAppend request to %d", i)
+				DPrintf("timing out PutAppend request to %d", i)
 				break
 			case reply := <-responseCh:
-				log.Printf("client reply from %d: %v", i, reply)
+				DPrintf("client reply from %d: %v", i, reply)
 				if reply.Err == OK {
 					ck.lastLeaderServer = i % len(ck.servers)
-					log.Printf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
+					DPrintf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
 					return
 				}
 			}

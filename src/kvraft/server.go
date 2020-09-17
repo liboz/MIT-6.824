@@ -11,7 +11,7 @@ import (
 	"../raft"
 )
 
-const Debug = 0
+const Debug = 1
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug > 0 {
@@ -69,6 +69,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		op := Op{}
 		op.Key = args.Key
 		op.OperationType = GET
+		op.ClientId = args.ClientId
 		op.ClientOperationNumber = args.ClientOperationNumber
 		val, err := kv.startOp(op, "Get")
 		reply.Value = val
@@ -94,24 +95,22 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
 	kv.mu.Lock()
 	expectedIndex, _, isLeader := kv.rf.Start(op)
-	kv.mu.Unlock()
 	if isLeader {
-		log.Printf("%d: listening for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
+		DPrintf("%d: listening for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
 		msgCh := make(chan KVMapItem)
-		kv.mu.Lock()
 		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedOperation: op}
 		kv.mu.Unlock()
 
 		select {
 		case <-time.After(TimeoutInterval):
-			log.Printf("%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
+			DPrintf("%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
 			delete(kv.applyChanMap, expectedIndex)
 
 			return "", ErrWrongLeader
 		case msg := <-msgCh:
-			log.Printf("%d: reply: %v, original op %v and opType %s", kv.me, msg, op, OpType)
+			DPrintf("%d: reply: %v, original op %v and opType %s", kv.me, msg, op, OpType)
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
 			delete(kv.applyChanMap, expectedIndex)
@@ -119,6 +118,7 @@ func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
 			return msg.val, msg.err
 		}
 	} else {
+		kv.mu.Unlock()
 		return "", ErrWrongLeader
 	}
 }
@@ -134,7 +134,7 @@ func appendToKV(KV map[string]string, key string, value string) {
 
 func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
-		log.Printf("%d: Got message: %v", kv.me, msg)
+		DPrintf("%d: Got message: %v", kv.me, msg)
 		command := msg.Command.(Op)
 		commandType := command.OperationType
 
@@ -147,7 +147,7 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 				appendToKV(kv.KV, command.Key, command.Value)
 				kv.seen[command.ClientId] = command.ClientOperationNumber
 			} else {
-				log.Printf("skipped message id %d as we have already seen it", command.ClientOperationNumber)
+				DPrintf("skipped message id %d as we have already seen it", command.ClientOperationNumber)
 			}
 		case GET:
 			val, ok := kv.KV[command.Key]
@@ -157,12 +157,12 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 				return "", ErrNoKey
 			}
 		default:
-			log.Printf("this should not happen!!!!!!!!!!!!!!: %v", msg)
+			DPrintf("this should not happen!!!!!!!!!!!!!!: %v", msg)
 			panic("REALLY BAD")
 		}
-		log.Printf("%d: %v", kv.me, kv.KV)
+		DPrintf("%d: %v", kv.me, kv.KV)
 	} else {
-		log.Printf("message skipped: %v", msg)
+		DPrintf("message skipped: %v", msg)
 	}
 	return "", OK
 }
@@ -189,7 +189,7 @@ func (kv *KVServer) sendMessageToApplyChanMap(msg raft.ApplyMsg, val string, err
 		messageCh := applyChanMapItem.ch
 		expectedOperation := applyChanMapItem.expectedOperation
 		if command != expectedOperation {
-			log.Printf("%d: No Longer leader", kv.me)
+			DPrintf("%d: No Longer leader", kv.me)
 			messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
 		} else {
 			messageCh <- KVMapItem{val: val, err: err}

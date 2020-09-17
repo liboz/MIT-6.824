@@ -564,7 +564,7 @@ func (rf *Raft) sendToApplyCh() {
 		rf.mu.Lock()
 		if rf.commitIndex > rf.lastApplied {
 			for rf.commitIndex > rf.lastApplied {
-				log.Printf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, rf.log[rf.lastApplied], rf.commitIndex, rf.lastApplied+1)
+				DPrintf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, rf.log[rf.lastApplied], rf.commitIndex, rf.lastApplied+1)
 				msg := ApplyMsg{}
 				msg.Command = rf.log[rf.lastApplied].Data
 				msg.CommandIndex = rf.lastApplied + 1
