@@ -69,10 +69,10 @@ Subsequent labs build on this lab, so it is important to give yourself enough ti
 
 ### Part 2A
 
-# Task
+#### Task
 Implement Raft leader election and heartbeats (`AppendEntries` RPCs with no log entries). The goal for Part 2A is for a single leader to be elected, for the leader to remain the leader if there are no failures, and for a new leader to take over if the old leader fails or if packets to/from the old leader are lost. Run go test -run 2A to test your 2A code.
 
-# Hints
+#### Hints
 *   You can't easily run your Raft implementation directly; instead you should run it by way of the tester, i.e. `go test -run 2A`.
 *   Follow the paper's Figure 2. At this point you care about sending and receiving RequestVote RPCs, the Rules for Servers that relate to elections, and the State related to leader election,
 *   Add the Figure 2 state for leader election to the Raft struct in raft.go. You'll also need to define a struct to hold information about each log entry.
@@ -106,10 +106,10 @@ $
 Each "Passed" line contains five numbers; these are the time that the test took in seconds, the number of Raft peers (usually 3 or 5), the number of RPCs sent during the test, the total number of bytes in the RPC messages, and the number of log entries that Raft reports were committed. Your numbers will differ from those shown here. You can ignore the numbers if you like, but they may help you sanity-check the number of RPCs that your implementation sends. For all of labs 2, 3, and 4, the grading script will fail your solution if it takes more than 600 seconds for all of the tests (`go test`), or if any individual test takes more than 120 seconds.
 
 ### Part 2B
-# Task
+#### Task
 Implement the leader and follower code to append new log entries, so that the `go test -run 2B tests` pass.
 
-# Hints
+#### Hints
 *   Run git pull to get the latest lab software.
 *   Your first goal should be to pass `TestBasicAgree2B()`. Start by implementing `Start()`, then write the code to send and receive new log entries via `AppendEntries` RPCs, following Figure 2.
 *   You will need to implement the election restriction (section 5.4.1 in the paper).
@@ -153,17 +153,17 @@ If a Raft-based server reboots it should resume service where it left off. This 
 
 A real implementation would write Raft's persistent state to disk each time it changed, and would read the state from disk when restarting after a reboot. Your implementation won't use the disk; instead, it will save and restore persistent state from a `Persister` object (see `persister.go`). Whoever calls `Raft.Make()` supplies a `Persister` that initially holds Raft's most recently persisted state (if any). Raft should initialize its state from that `Persister`, and should use it to save its persistent state each time the state changes. Use the `Persister`'s `ReadRaftState()` and `SaveRaftState()` methods.
 
-# Task
+#### Task
 
 Complete the functions `persist()` and `readPersist()` in `raft.go` by adding code to save and restore persistent state. You will need to encode (or "serialize") the state as an array of bytes in order to pass it to the Persister. Use the `labgob` encoder; see the comments in `persist()` and `readPersist()`. `labgob` is like Go's gob encoder but prints error messages if you try to encode structures with lower-case field names.
 
-# Task
+#### Task
 Insert calls to `persist()` at the points where your implementation changes persistent state. Once you've done this, you should pass the remaining tests.
 
-# Note
+#### Note
 In order to avoid running out of memory, Raft must periodically discard old log entries, but you **do not** have to worry about this until the next lab.
 
-# Hints
+#### Hints
 *   Run git pull to get the latest lab software.
 *   Many of the 2C tests involve servers failing and the network losing RPC requests or replies.
 *   You will probably need the optimization that backs up `nextIndex` by more than one entry at a time. Look at the [extended Raft paper](../papers/raft-extended.pdf) starting at the bottom of page 7 and top of page 8 (marked by a gray line). The paper is vague about the details; you will need to fill in the gaps, perhaps with the help of the 6.824 Raft lectures.
