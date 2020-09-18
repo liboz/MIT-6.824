@@ -1,6 +1,31 @@
 # MIT-6.824
 
-Just a repo for my work learning Go by doing the coursework for [MIT 6.824](https://pdos.csail.mit.edu/6.824/schedule.html)
+Just a repo for my work learning Go/distributed system by doing the coursework for [MIT 6.824](https://pdos.csail.mit.edu/6.824/schedule.html)
+
+# KV
+Full readme at https://pdos.csail.mit.edu/6.824/labs/lab-kvraft.html
+```
+go test -race
+```
+
+Run a test repeatedly
+```
+sh ./testmanytimes.sh
+```
+
+Linearizability Visualizer has been modified to see lines more clearly
+
+# Raft
+Full readme at https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
+```
+go test -race
+```
+
+Run a test repeatedly
+```
+sh ./testmanytimes.sh
+```
+
 
 # MapReduce
 
@@ -31,5 +56,3 @@ Run many `test-mr.sh` many times:
 ```
 sh ./testmanytimes.sh
 ```
-
-# Raft
