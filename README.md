@@ -3,7 +3,7 @@
 Just a repo for my work learning Go/distributed system by doing the coursework for [MIT 6.824](https://pdos.csail.mit.edu/6.824/schedule.html)
 
 # KV
-Full readme at https://pdos.csail.mit.edu/6.824/labs/lab-kvraft.html
+[Full readme](src/kvraft/README.md)
 ```
 go test -race
 ```
@@ -16,7 +16,7 @@ sh ./testmanytimes.sh
 Linearizability Visualizer has been modified to see lines more clearly
 
 # Raft
-Full readme at https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
+[Full readme](src/raft/README.md)
 ```
 go test -race
 ```
@@ -29,7 +29,7 @@ sh ./testmanytimes.sh
 
 # MapReduce
 
-Full readme at https://github.com/liboz/MIT-6.824/blob/master/src/mr/README.md
+[Full readme](src/mr/README.md)
 
 ```
 go build -buildmode=plugin ../mrapps/wc.go

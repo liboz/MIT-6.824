@@ -20,7 +20,7 @@ You may find this [guide](https://thesquareplanet.com/blog/students-guide-to-raf
 
 ### Getting Started
 
-We supply you with skeleton code `src/raft/raft.go`. We also supply a set of tests, which you should use to drive your implementation efforts, and which we'll use to grade your submitted lab. The tests are in `src/raft/test\_test.go`.
+We supply you with skeleton code `src/raft/raft.go`. We also supply a set of tests, which you should use to drive your implementation efforts. The tests are in `src/raft/test\_test.go`.
 
 To get up and running, execute the following commands. Don't forget the git pull to get the latest software.
 
@@ -92,7 +92,7 @@ Implement Raft leader election and heartbeats (`AppendEntries` RPCs with no log 
 *   Go RPC sends only struct fields whose names start with capital letters. Sub-structures must also have capitalized field names (e.g. fields of log records in an array). The labgob package will warn you about this; don't ignore the warnings.
 *   Check your code with `go test -race`, and fix any races it reports.
 
-Be sure you pass the 2A tests before submitting Part 2A, so that you see something like this:
+You should see something like this:
 
 $ go test -run 2A
 Test (2A): initial election ...
