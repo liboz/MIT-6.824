@@ -65,12 +65,9 @@ func (ck *Clerk) Get(key string) string {
 	args.ClientId = ck.id
 	args.ClientOperationNumber = ck.operationNumber
 	args.Key = key
-
 	responseCh := make(chan *GetReply)
-
 	initialServer := ck.getInitialServer()
 	for {
-
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &GetReply{}
@@ -83,18 +80,16 @@ func (ck *Clerk) Get(key string) string {
 				DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
-				if reply.Err == OK {
+				if reply.Err == OK || reply.Err == ErrNoKey {
 					ck.lastLeaderServer = i % len(ck.servers)
-					DPrintf("%d: Get success with %s:%s", ck.lastLeaderServer, key, reply.Value)
+					DPrintf("%d: Get %s with %s:%s", ck.lastLeaderServer, reply.Err, key, reply.Value)
 					return reply.Value
 				}
 			}
 
 		}
-
 		time.Sleep(time.Duration(100 * time.Millisecond))
 	}
-	return ""
 }
 
 //
@@ -118,7 +113,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	initialServer := ck.getInitialServer()
 	responseCh := make(chan *PutAppendReply)
 	for {
-
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &PutAppendReply{}

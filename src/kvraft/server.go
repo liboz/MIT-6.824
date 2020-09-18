@@ -166,7 +166,7 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 		}
 		DPrintf("%d: %v", kv.me, kv.KV)
 	} else {
-		DPrintf("message skipped: %v", msg)
+		DPrintf("%d: message skipped: %v", kv.me, msg)
 	}
 	return "", OK
 }
