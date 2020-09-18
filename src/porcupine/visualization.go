@@ -165,7 +165,15 @@ html {
 }
 
 .linearization-invalid {
-  stroke: rgba(255, 0, 0, 0.5);
+  stroke: rgba(0, 0, 255, 0.5);
+}
+
+.linearization-invalid.linearization-point {
+  stroke-width: 20;
+}
+
+.linearization-invalid.linearization-line {
+  stroke-width: 20;
 }
 
 .linearization-point {
@@ -197,7 +205,7 @@ html {
         <polygon points="200,5 200,15, 210,10" fill="#000"></polygon>
         <rect x="300" y="5" width="10" height="10" fill="rgba(0, 0, 0, 0.5)"></rect>
         <text x="315" y="10" alignment-baseline="middle">Valid LP</text>
-        <rect x="400" y="5" width="10" height="10" fill="rgba(255, 0, 0, 0.5)"></rect>
+        <rect x="400" y="5" width="10" height="10" fill="rgba(0, 0, 255, 0.5)"></rect>
         <text x="415" y="10" alignment-baseline="middle">Invalid LP</text>
       </svg>
     </div>

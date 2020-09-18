@@ -93,9 +93,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 }
 
 func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
-	kv.mu.Lock()
 	expectedIndex, _, isLeader := kv.rf.Start(op)
 	if isLeader {
+		kv.mu.Lock()
 		DPrintf("%d: listening for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
 		msgCh := make(chan KVMapItem)
 		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedOperation: op}
@@ -111,16 +111,26 @@ func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
 			return "", ErrWrongLeader
 		case msg := <-msgCh:
 			DPrintf("%d: reply: %v, original op %v and opType %s", kv.me, msg, op, OpType)
-			kv.mu.Lock()
-			defer kv.mu.Unlock()
-			delete(kv.applyChanMap, expectedIndex)
-
 			return msg.val, msg.err
 		}
 	} else {
-		kv.mu.Unlock()
 		return "", ErrWrongLeader
 	}
+}
+
+func (kv *KVServer) modifyKV(command Op, commandType string, operation func(map[string]string, string, string)) {
+	previousOperationNumber, ok := kv.seen[command.ClientId]
+	if !ok || previousOperationNumber < command.ClientOperationNumber {
+		operation(kv.KV, command.Key, command.Value)
+		kv.seen[command.ClientId] = command.ClientOperationNumber
+	} else {
+		DPrintf("%d: skipped  message id %d %s from %d as we have already seen it. previous seen operation is %d ", kv.me,
+			command.ClientOperationNumber, commandType, command.ClientId, previousOperationNumber)
+	}
+}
+
+func putToKV(KV map[string]string, key string, value string) {
+	KV[key] = value
 }
 
 func appendToKV(KV map[string]string, key string, value string) {
@@ -140,15 +150,9 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 
 		switch commandType {
 		case PUT:
-			kv.KV[command.Key] = command.Value
+			kv.modifyKV(command, commandType, putToKV)
 		case APPEND:
-			previousOperationNumber, ok := kv.seen[command.ClientId]
-			if !ok || previousOperationNumber < command.ClientOperationNumber {
-				appendToKV(kv.KV, command.Key, command.Value)
-				kv.seen[command.ClientId] = command.ClientOperationNumber
-			} else {
-				DPrintf("skipped message id %d as we have already seen it", command.ClientOperationNumber)
-			}
+			kv.modifyKV(command, commandType, appendToKV)
 		case GET:
 			val, ok := kv.KV[command.Key]
 			if ok {
@@ -186,6 +190,7 @@ func (kv *KVServer) sendMessageToApplyChanMap(msg raft.ApplyMsg, val string, err
 	index := msg.CommandIndex
 	applyChanMapItem, ok := kv.applyChanMap[index]
 	if ok {
+		delete(kv.applyChanMap, index)
 		messageCh := applyChanMapItem.ch
 		expectedOperation := applyChanMapItem.expectedOperation
 		if command != expectedOperation {
