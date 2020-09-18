@@ -14,5 +14,5 @@ jobs:
         env: 
           RAFT_DEBUG: 1
         run: |
-          cd src/raft
+          cd src/kvraft
           go test -run 3A -race
