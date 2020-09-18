@@ -177,28 +177,28 @@ func (kv *KVServer) getMessages() {
 		case msg := <-kv.applyCh:
 			kv.mu.Lock()
 			val, err := kv.processApplyChMessage(msg)
-			kv.sendMessageToApplyChanMap(msg, val, err)
+			command := msg.Command.(Op)
+			index := msg.CommandIndex
+			applyChanMapItem, ok := kv.applyChanMap[index]
+			delete(kv.applyChanMap, index)
 			kv.mu.Unlock()
+			if ok {
+				kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
+			}
 		case <-kv.killCh:
 			return
 		}
 	}
 }
 
-func (kv *KVServer) sendMessageToApplyChanMap(msg raft.ApplyMsg, val string, err Err) {
-	command := msg.Command.(Op)
-	index := msg.CommandIndex
-	applyChanMapItem, ok := kv.applyChanMap[index]
-	if ok {
-		delete(kv.applyChanMap, index)
-		messageCh := applyChanMapItem.ch
-		expectedOperation := applyChanMapItem.expectedOperation
-		if command != expectedOperation {
-			DPrintf("%d: No Longer leader", kv.me)
-			messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
-		} else {
-			messageCh <- KVMapItem{val: val, err: err}
-		}
+func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem, command Op, val string, err Err) {
+	messageCh := applyChanMapItem.ch
+	expectedOperation := applyChanMapItem.expectedOperation
+	if command != expectedOperation {
+		DPrintf("%d: No Longer leader", kv.me)
+		messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
+	} else {
+		messageCh <- KVMapItem{val: val, err: err}
 	}
 }
 
