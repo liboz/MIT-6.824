@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-go@v2
       - name: Test
         env: 
-          RAFT_DEBUG: 1
+          RAFT_DEBUG: 0
         run: |
           cd src/kvraft
           go test -run 3A -race
