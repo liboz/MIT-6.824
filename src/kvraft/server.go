@@ -194,11 +194,18 @@ func (kv *KVServer) getMessages() {
 func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem, command Op, val string, err Err) {
 	messageCh := applyChanMapItem.ch
 	expectedOperation := applyChanMapItem.expectedOperation
+	var msg KVMapItem
 	if command != expectedOperation {
 		DPrintf("%d: No Longer leader", kv.me)
-		messageCh <- KVMapItem{val: "", err: ErrWrongLeader}
+		msg = KVMapItem{val: "", err: ErrWrongLeader}
 	} else {
-		messageCh <- KVMapItem{val: val, err: err}
+		msg = KVMapItem{val: val, err: err}
+	}
+	select {
+	case messageCh <- msg:
+		return
+	default:
+		log.Printf("tried to send message %v to apply channel, but it was not available for listening", expectedOperation)
 	}
 }
 
