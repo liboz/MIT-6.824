@@ -205,7 +205,7 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 	case messageCh <- msg:
 		return
 	default:
-		log.Printf("tried to send message %v to apply channel, but it was not available for listening", expectedOperation)
+		log.Printf("%d: tried to send message %v to apply channel, but it was not available for listening", kv.me, expectedOperation)
 	}
 }
 
