@@ -19,6 +19,7 @@ package raft
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -333,7 +334,7 @@ func (rf *Raft) becomeCandidate() {
 	rf.persist()
 	rf.mu.Unlock()
 	resultChannel := make(chan *RequestVoteReply)
-	for serverIndex, _ := range rf.peers {
+	for serverIndex := range rf.peers {
 		if serverIndex != rf.me {
 			go func(serverIndex int) {
 				args := &RequestVoteArgs{}
@@ -377,9 +378,10 @@ func (rf *Raft) becomeCandidate() {
 				rf.mu.Lock()
 				rf.state = Leader
 				rf.initializeMatchAndNextIndex()
+				requests := rf.makeAppendEntriesRequests()
 				rf.mu.Unlock()
 				log.Printf("Enough servers have voted for index %d. Becoming leader for term %d", rf.me, rf.currentTerm)
-				rf.sendAppendEntriesToAll()
+				rf.sendAppendEntriesToAll(requests)
 				return
 			}
 		case <-time.After(rf.electionTimeout):
@@ -420,7 +422,7 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 	leaderCommit := rf.commitIndex
 	var requests []*AppendEntriesArgs
 
-	for serverIndex, _ := range rf.peers {
+	for serverIndex := range rf.peers {
 		if serverIndex != rf.me {
 			args := &AppendEntriesArgs{}
 			args.Term = currentTerm
@@ -447,11 +449,8 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 	return requests
 }
 
-func (rf *Raft) sendAppendEntriesToAll() {
-	rf.mu.RLock()
-	requests := rf.makeAppendEntriesRequests()
-	rf.mu.RUnlock()
-	for serverIndex, _ := range rf.peers {
+func (rf *Raft) sendAppendEntriesToAll(requests []*AppendEntriesArgs) {
+	for serverIndex := range rf.peers {
 		if serverIndex != rf.me {
 			go func(serverIndex int) {
 				reply := &AppendEntriesReply{}
@@ -550,8 +549,9 @@ func (rf *Raft) loopAppendEntries() {
 	for !rf.killed() {
 		rf.mu.RLock()
 		if rf.state == Leader {
+			requests := rf.makeAppendEntriesRequests()
 			rf.mu.RUnlock()
-			rf.sendAppendEntriesToAll()
+			rf.sendAppendEntriesToAll(requests)
 		} else {
 			rf.mu.RUnlock()
 		}
@@ -591,30 +591,31 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 			DPrint("Received appendEntries response to request from id ", rf.me, " to id ", fullResponse.ServerIndex, " for term ",
 				fullResponse.Request.Term, " response term is ", fullResponse.Response.Term, ". ", fullResponse)
 
-			if fullResponse.Response.Term > rf.currentTerm {
-				// convert to follower
-				DPrint("Server ", rf.me, ": stepping down as AppendEntries Response had term ", fullResponse.Response.Term, " compared to current term of ", rf.currentTerm)
-				rf.stepDown(fullResponse.Response.Term)
-				rf.mu.Unlock()
-				continue
-			} else if !fullResponse.Response.Success && rf.nextIndex[fullResponse.ServerIndex] != 1 {
-				DPrint("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
-				lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
-				if fullResponse.Response.XLength != -1 {
-					rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
-				} else if lastIndex != -1 {
-					rf.nextIndex[fullResponse.ServerIndex] = lastIndex
-				} else {
-					rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XIndex
+			if !fullResponse.Response.Success {
+				if fullResponse.Response.Term > rf.currentTerm {
+					// convert to follower
+					DPrint("Server ", rf.me, ": stepping down as AppendEntries Response had term ", fullResponse.Response.Term, " compared to current term of ", rf.currentTerm)
+					rf.stepDown(fullResponse.Response.Term)
+					rf.mu.Unlock()
+					continue
+				} else if rf.nextIndex[fullResponse.ServerIndex] != 1 { // follower's log is out of sync with the leader
+					DPrint("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
+					lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
+					if fullResponse.Response.XLength != -1 {
+						rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
+					} else if lastIndex != -1 {
+						rf.nextIndex[fullResponse.ServerIndex] = lastIndex // min value of 1
+					} else {
+						rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XIndex // min value of 1
+					}
+					DPrint("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
 				}
-				DPrint("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
 			} else {
 				newLengthFromRequest := len(fullResponse.Request.Entries) + fullResponse.Request.PrevLogIndex
 				DPrint("updating matchIndex ", rf.matchIndex[fullResponse.ServerIndex], " and nextIndex ", rf.nextIndex[fullResponse.ServerIndex], " for server ", fullResponse.ServerIndex, " to ", newLengthFromRequest)
 				rf.matchIndex[fullResponse.ServerIndex] = max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
 				rf.nextIndex[fullResponse.ServerIndex] = max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
 			}
-
 			rf.maybeUpdateCommitIndex()
 		}
 
@@ -631,7 +632,7 @@ func (rf *Raft) maybeUpdateCommitIndex() {
 		}
 		votesRequired := len(rf.peers)/2 + 1
 		DPrint("N: ", N, ". term at log is ", rf.log[N-1].Term, ". current term is", rf.currentTerm, rf.matchIndex)
-		for serverIndex, _ := range rf.peers {
+		for serverIndex := range rf.peers {
 			if rf.matchIndex[serverIndex] >= N {
 				votesRequired -= 1
 			}
@@ -650,7 +651,7 @@ func (rf *Raft) findFirstInLog(targetTerm int) int {
 			return i + 1 // 1 based indexing
 		}
 	}
-	return -1 // should never happen
+	panic(fmt.Sprintf("found nothing in log %v with term %d", rf.log, targetTerm))
 }
 
 func (rf *Raft) findLastInLog(targetTerm int) int {
