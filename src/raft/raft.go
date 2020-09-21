@@ -379,8 +379,8 @@ func (rf *Raft) becomeCandidate() {
 				rf.state = Leader
 				rf.initializeMatchAndNextIndex()
 				requests := rf.makeAppendEntriesRequests()
-				rf.mu.Unlock()
 				log.Printf("Enough servers have voted for index %d. Becoming leader for term %d", rf.me, rf.currentTerm)
+				rf.mu.Unlock()
 				rf.sendAppendEntriesToAll(requests)
 				return
 			}
