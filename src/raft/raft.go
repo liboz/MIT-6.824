@@ -51,6 +51,8 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	StateSize    int
+	Term         int
 }
 
 type LogEntry struct {
@@ -62,6 +64,12 @@ type AppendEntriesResponse struct {
 	Request     AppendEntriesArgs
 	Response    AppendEntriesReply
 	ServerIndex int
+}
+
+type Snapshot struct {
+	LastIncludedTerm  int
+	Data              interface{}
+	LastIncludedIndex int
 }
 
 //
@@ -87,6 +95,8 @@ type Raft struct {
 
 	electionTimeout time.Duration // time before timingout election
 	lastHeartbeat   time.Time     // Time of last heartbeat
+	offset          int
+	snapshot        Snapshot
 }
 
 // return currentTerm and whether this server
@@ -97,18 +107,23 @@ func (rf *Raft) GetState() (int, bool) {
 	return rf.currentTerm, rf.state == Leader
 }
 
-//
-// save Raft's persistent state to stable storage,
-// where it can later be retrieved after a crash and restart.
-// see paper's Figure 2 for a description of what should be persistent.
-//
-func (rf *Raft) persist() {
+func (rf *Raft) saveData() []byte {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
 	data := w.Bytes()
+	return data
+}
+
+//
+// save Raft's persistent state to stable storage,
+// where it can later be retrieved after a crash and restart.
+// see paper's Figure 2 for a description of what should be persistent.
+//
+func (rf *Raft) persist() {
+	data := rf.saveData()
 	DPrintf("persisting on server %d; term %d; votedFor %d; log: %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 	rf.persister.SaveRaftState(data)
 }
@@ -160,9 +175,9 @@ type RequestVoteReply struct {
 type AppendEntriesArgs struct {
 	Term         int        // leader's term
 	LeaderId     int        // index in peers of candidate requesting vote
-	PrevLogIndex int        //index of log entry immediately preceding new ones
-	PrevLogTerm  int        //term of prevLogIndex entry
-	Entries      []LogEntry //log entries to store (empty for heartbeat; may send more than one for efficiency)
+	PrevLogIndex int        // index of log entry immediately preceding new ones
+	PrevLogTerm  int        // term of prevLogIndex entry
+	Entries      []LogEntry // log entries to store (empty for heartbeat; may send more than one for efficiency)
 	LeaderCommit int        // leader’s commitIndex
 }
 
@@ -172,6 +187,16 @@ type AppendEntriesReply struct {
 	XTerm   int
 	XIndex  int
 	XLength int
+}
+
+type InstallSnapshotArgs struct {
+	Term     int      // leader's term
+	LeaderId int      // index in peers of candidate requesting vote
+	Snapshot Snapshot // snapshot data
+}
+
+type InstallSnapshotReply struct {
+	Term int // currentTerm for leader to update itself
 }
 
 //
@@ -268,6 +293,29 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Term = args.Term
 		reply.Success = true
 		//DPrint("server ", rf.me, " responded with a success message to server ", args.LeaderId)
+
+		return
+	}
+}
+
+func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+	if !rf.killed() {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		reply.Term = rf.currentTerm
+
+		if args.Term < rf.currentTerm {
+			return
+		}
+
+		rf.snapshot = args.Snapshot
+		if rf.snapshot.LastIncludedIndex < len(rf.log) {
+			rf.log = rf.log[rf.snapshot.LastIncludedIndex+1:]
+		} else {
+			rf.log = []LogEntry{}
+		}
+
+		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
 
 		return
 	}
@@ -428,8 +476,11 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 			args.Term = currentTerm
 			args.LeaderId = rf.me
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
+			args.Term = currentTerm
 			if args.PrevLogIndex == 0 {
 				args.PrevLogTerm = -1
+			} else if args.PrevLogIndex > len(rf.log) {
+				args.PrevLogTerm = rf.snapshot.LastIncludedTerm
 			} else {
 				args.PrevLogTerm = rf.log[args.PrevLogIndex-1].Term
 			}
@@ -508,6 +559,34 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
+func (rf *Raft) SaveSnapshot(snapshot interface{}, lastIncludedIndex int, lastIncludedTerm int) bool {
+	log.Printf("Server %d received command with offset %d; snapshot %v; log %v", rf.me, rf.offset, rf.snapshot, rf.log)
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	data := rf.saveData()
+
+	snapshotBuffer := new(bytes.Buffer)
+	encoder := labgob.NewEncoder(snapshotBuffer)
+	encoder.Encode(snapshot)
+	encodedSnapshot := snapshotBuffer.Bytes()
+
+	rf.persister.SaveStateAndSnapshot(data, encodedSnapshot)
+	rf.snapshot = Snapshot{}
+	rf.snapshot.LastIncludedIndex = lastIncludedIndex
+	rf.snapshot.LastIncludedTerm = lastIncludedTerm
+	rf.snapshot.Data = snapshot
+	if lastIncludedIndex < len(rf.log) {
+		rf.log = rf.log[lastIncludedIndex+1:]
+	} else {
+		rf.log = []LogEntry{}
+	}
+	rf.offset = lastIncludedIndex - 1
+	log.Printf("Server %d now has offset %d; snapshot %v; log %v", rf.me, rf.offset, rf.snapshot, rf.log)
+
+	return true
+}
+
 //
 // the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
@@ -569,6 +648,8 @@ func (rf *Raft) sendToApplyCh() {
 				msg.Command = rf.log[rf.lastApplied].Data
 				msg.CommandIndex = rf.lastApplied + 1
 				msg.CommandValid = true
+				msg.StateSize = rf.persister.RaftStateSize()
+				msg.Term = rf.log[rf.lastApplied].Term
 				rf.mu.Unlock()
 				rf.applyCh <- msg
 				rf.mu.Lock()
@@ -600,7 +681,13 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 					continue
 				} else if rf.nextIndex[fullResponse.ServerIndex] != 1 { // follower's log is out of sync with the leader
 					DPrint("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
-					lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
+					var lastIndex int
+					if len(rf.log) < 0 {
+						lastIndex = fullResponse.Response.XIndex
+					} else {
+						lastIndex = rf.findLastInLog(fullResponse.Response.XTerm)
+
+					}
 					if fullResponse.Response.XLength != -1 {
 						rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
 					} else if lastIndex != -1 {
@@ -609,6 +696,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 						rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XIndex // min value of 1
 					}
 					DPrint("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
+
 				}
 			} else {
 				newLengthFromRequest := len(fullResponse.Request.Entries) + fullResponse.Request.PrevLogIndex
@@ -701,6 +789,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.applyCh = applyCh
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
+	rf.offset = 0
 	rf.initializeMatchAndNextIndex()
 	rf.appendEntriesResponseCh = make(chan AppendEntriesResponse)
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)

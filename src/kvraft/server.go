@@ -2,6 +2,7 @@ package kvraft
 
 import (
 	"log"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,11 +46,12 @@ type KVServer struct {
 	applyCh chan raft.ApplyMsg
 	dead    int32 // set by Kill()
 
-	maxraftstate int // snapshot if log grows this big
-	KV           map[string]string
-	seen         map[int64]int
-	applyChanMap map[int]ApplyChanMapItem
-	killCh       chan bool
+	maxraftstate            int // snapshot if log grows this big
+	KV                      map[string]string
+	seen                    map[int64]int
+	applyChanMap            map[int]ApplyChanMapItem
+	killCh                  chan bool
+	raftStateSizeToSnapshot int
 
 	// Your definitions here.
 }
@@ -181,7 +183,17 @@ func (kv *KVServer) getMessages() {
 			index := msg.CommandIndex
 			applyChanMapItem, ok := kv.applyChanMap[index]
 			delete(kv.applyChanMap, index)
-			kv.mu.Unlock()
+			if msg.StateSize >= kv.raftStateSizeToSnapshot {
+				copy := make(map[string]string)
+				for key, value := range kv.KV {
+					copy[key] = value
+				}
+				log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, index, msg.Term, copy)
+				kv.mu.Unlock()
+				//kv.rf.SaveSnapshot(copy, index, msg.Term)
+			} else {
+				kv.mu.Unlock()
+			}
 			if ok {
 				kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
 			}
@@ -263,6 +275,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.seen = make(map[int64]int)
 	kv.applyChanMap = make(map[int]ApplyChanMapItem)
 	kv.killCh = make(chan bool)
+	kv.raftStateSizeToSnapshot = int(math.Trunc(float64(kv.maxraftstate) * 0.8))
 	go func() {
 		kv.getMessages()
 	}()
