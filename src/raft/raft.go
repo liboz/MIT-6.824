@@ -176,7 +176,7 @@ type RequestVoteReply struct {
 type AppendEntriesArgs struct {
 	Term         int        // leader's term
 	LeaderId     int        // index in peers of candidate requesting vote
-	PrevLogIndex int        // index of log entry immediately preceding new ones 0 indexed
+	PrevLogIndex int        // index of log entry immediately preceding new ones, 1 indexed
 	PrevLogTerm  int        // term of prevLogIndex entry
 	Entries      []LogEntry // log entries to store (empty for heartbeat; may send more than one for efficiency)
 	LeaderCommit int        // leader’s commitIndex
@@ -265,8 +265,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.PrevLogIndex != 0 {
 			// longer than current log
 			effectiveLength := rf.effectiveLogLength()
-			largerThanCurrentEffectLogLength := args.PrevLogIndex > effectiveLength
-			if largerThanCurrentEffectLogLength {
+			if args.PrevLogIndex > effectiveLength {
 				reply.Term = rf.currentTerm
 				reply.Success = false
 				reply.XTerm = -1
@@ -347,7 +346,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
 		rf.currentTerm = args.Term
-		rf.offset = rf.snapshot.LastIncludedIndex - 1
+		rf.offset = rf.snapshot.LastIncludedIndex
 		reply.Term = args.Term
 		return
 	}
@@ -514,6 +513,7 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 			args.Term = currentTerm
 			args.LeaderId = rf.me
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
+			log.Printf("%d: PrevLogIndex sent to %d was %d", rf.me, serverIndex, args.PrevLogIndex)
 			args.Term = currentTerm
 			if args.PrevLogIndex == 0 {
 				args.PrevLogTerm = -1
@@ -521,7 +521,6 @@ func (rf *Raft) makeAppendEntriesRequests() []*AppendEntriesArgs {
 				args.PrevLogTerm = rf.snapshot.LastIncludedTerm
 			} else {
 				args.PrevLogTerm = rf.log[args.PrevLogIndex-1].Term
-				log.Printf("%d: PrevLogIndex sent to %d was %d", rf.me, serverIndex, args.PrevLogIndex)
 			}
 
 			if args.PrevLogIndex < len(rf.log) {
@@ -614,13 +613,13 @@ func (rf *Raft) SaveSnapshot(snapshot interface{}, lastIncludedIndex int, lastIn
 	rf.snapshot.LastIncludedIndex = lastIncludedIndex
 	rf.snapshot.LastIncludedTerm = lastIncludedTerm
 	rf.snapshot.Data = snapshot
-	log.Print(lastIncludedIndex, rf.effectiveLogLength())
+	log.Printf("%d: lastIncluded: %d; effectiveLogLength: %d", rf.me, lastIncludedIndex, rf.effectiveLogLength())
 	if lastIncludedIndex < rf.effectiveLogLength() {
 		rf.log = rf.log[lastIncludedIndex:]
 	} else {
 		rf.log = []LogEntry{}
 	}
-	rf.offset = lastIncludedIndex - 1
+	rf.offset = lastIncludedIndex
 
 	data := rf.encodeData()
 	rf.persister.SaveStateAndSnapshot(data, encodedSnapshot)
