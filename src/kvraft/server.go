@@ -190,7 +190,7 @@ func (kv *KVServer) getMessages() {
 				}
 				log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, index, msg.Term, copy)
 				kv.mu.Unlock()
-				//kv.rf.SaveSnapshot(copy, index, msg.Term)
+				kv.rf.SaveSnapshot(copy, index, msg.Term)
 			} else {
 				kv.mu.Unlock()
 			}
