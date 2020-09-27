@@ -52,6 +52,7 @@ type KVServer struct {
 	applyChanMap            map[int]ApplyChanMapItem
 	killCh                  chan bool
 	raftStateSizeToSnapshot int
+	saveSnapshotCh          chan SaveSnapshotChItem
 
 	// Your definitions here.
 }
@@ -64,6 +65,11 @@ type ApplyChanMapItem struct {
 type KVMapItem struct {
 	err Err
 	val string
+}
+
+type SaveSnapshotChItem struct {
+	Term  int
+	Index int
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -146,27 +152,33 @@ func appendToKV(KV map[string]string, key string, value string) {
 
 func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
-		DPrintf("%d: Got message: %v", kv.me, msg)
-		command := msg.Command.(Op)
-		commandType := command.OperationType
+		DPrintf("%d: Got message; isSnapshot: %v; %v", kv.me, msg.IsSnapshot, msg)
+		if msg.IsSnapshot {
+			snapshot := msg.Command.(map[string]string)
+			kv.KV = copyMap(snapshot)
+		} else {
+			command := msg.Command.(Op)
+			commandType := command.OperationType
 
-		switch commandType {
-		case PUT:
-			kv.modifyKV(command, commandType, putToKV)
-		case APPEND:
-			kv.modifyKV(command, commandType, appendToKV)
-		case GET:
-			val, ok := kv.KV[command.Key]
-			if ok {
-				return val, OK
-			} else {
-				return "", ErrNoKey
+			switch commandType {
+			case PUT:
+				kv.modifyKV(command, commandType, putToKV)
+			case APPEND:
+				kv.modifyKV(command, commandType, appendToKV)
+			case GET:
+				val, ok := kv.KV[command.Key]
+				if ok {
+					return val, OK
+				} else {
+					return "", ErrNoKey
+				}
+			default:
+				DPrintf("this should not happen!!!!!!!!!!!!!!: %v", msg)
+				panic("REALLY BAD")
 			}
-		default:
-			DPrintf("this should not happen!!!!!!!!!!!!!!: %v", msg)
-			panic("REALLY BAD")
 		}
 		DPrintf("%d: %v", kv.me, kv.KV)
+
 	} else {
 		DPrintf("%d: message skipped: %v", kv.me, msg)
 	}
@@ -179,23 +191,18 @@ func (kv *KVServer) getMessages() {
 		case msg := <-kv.applyCh:
 			kv.mu.Lock()
 			val, err := kv.processApplyChMessage(msg)
-			command := msg.Command.(Op)
-			index := msg.CommandIndex
-			applyChanMapItem, ok := kv.applyChanMap[index]
-			delete(kv.applyChanMap, index)
-			if msg.StateSize >= kv.raftStateSizeToSnapshot {
-				copy := make(map[string]string)
-				for key, value := range kv.KV {
-					copy[key] = value
+			if !msg.IsSnapshot {
+				command := msg.Command.(Op)
+				index := msg.CommandIndex
+				applyChanMapItem, ok := kv.applyChanMap[index]
+				delete(kv.applyChanMap, index)
+				kv.mu.Unlock()
+				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
+					go kv.sendSaveSnapshotCh(index, msg.Term)
 				}
-				log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, index, msg.Term, copy)
-				kv.mu.Unlock()
-				kv.rf.SaveSnapshot(copy, index, msg.Term)
-			} else {
-				kv.mu.Unlock()
-			}
-			if ok {
-				kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
+				if ok {
+					kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
+				}
 			}
 		case <-kv.killCh:
 			return
@@ -221,6 +228,40 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 	}
 }
 
+func (kv *KVServer) sendSaveSnapshotCh(index int, term int) {
+	saveSnapshotMsg := SaveSnapshotChItem{}
+	saveSnapshotMsg.Index = index
+	saveSnapshotMsg.Term = term
+	select {
+	case kv.saveSnapshotCh <- saveSnapshotMsg:
+	case <-kv.killCh:
+		return
+	}
+}
+
+func copyMap(original map[string]string) map[string]string {
+	copy := make(map[string]string)
+	for key, value := range original {
+		copy[key] = value
+	}
+	return copy
+}
+
+func (kv *KVServer) listenSaveSnapshotCh() {
+	for {
+		select {
+		case msg := <-kv.saveSnapshotCh:
+			kv.mu.Lock()
+			copy := copyMap(kv.KV)
+			log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, msg.Index, msg.Term, copy)
+			kv.mu.Unlock()
+			kv.rf.SaveSnapshot(copy, msg.Index, msg.Term)
+		case <-kv.killCh:
+			return
+		}
+	}
+}
+
 //
 // the tester calls Kill() when a KVServer instance won't
 // be needed again. for your convenience, we supply
@@ -235,7 +276,7 @@ func (kv *KVServer) Kill() {
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
 	// Your code here, if desired.
-	kv.killCh <- true
+	close(kv.killCh)
 }
 
 func (kv *KVServer) killed() bool {
@@ -276,8 +317,14 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.applyChanMap = make(map[int]ApplyChanMapItem)
 	kv.killCh = make(chan bool)
 	kv.raftStateSizeToSnapshot = int(math.Trunc(float64(kv.maxraftstate) * 0.8))
+	kv.saveSnapshotCh = make(chan SaveSnapshotChItem)
+
 	go func() {
 		kv.getMessages()
+	}()
+
+	go func() {
+		kv.listenSaveSnapshotCh()
 	}()
 
 	return kv
