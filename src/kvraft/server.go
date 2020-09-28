@@ -152,7 +152,7 @@ func appendToKV(KV map[string]string, key string, value string) {
 
 func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
-		DPrintf("%d: Got message; isSnapshot: %v; %v", kv.me, msg.IsSnapshot, msg)
+		DPrintf("%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
 		if msg.IsSnapshot {
 			snapshot := msg.Command.(map[string]string)
 			kv.KV = copyMap(snapshot)
@@ -203,6 +203,8 @@ func (kv *KVServer) getMessages() {
 				if ok {
 					kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
 				}
+			} else {
+				kv.mu.Unlock()
 			}
 		case <-kv.killCh:
 			return

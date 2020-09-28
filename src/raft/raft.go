@@ -260,6 +260,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
+func (rf *Raft) convertToFollower() {
+	if rf.state != Follower {
+		DPrint("Server id ", rf.me, " got converted from ", rf.state, " to Follower")
+	}
+	rf.state = Follower
+}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
@@ -325,10 +332,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		rf.persist()
 
-		if rf.state != Follower {
-			DPrint("Server id ", rf.me, " got converted from ", rf.state, " to Follower")
-		}
-		rf.state = Follower
+		rf.convertToFollower()
 
 		reply.Term = args.Term
 		reply.Success = true
@@ -350,16 +354,19 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		}
 
 		rf.lastHeartbeat = time.Now()
-		rf.snapshot = args.Snapshot
 		if rf.snapshot.LastIncludedIndex < rf.effectiveLogLength() {
 			rf.log = rf.log[rf.snapshot.LastIncludedIndex-rf.offset+1:]
 		} else {
 			rf.log = []LogEntry{}
 		}
+		rf.snapshot = args.Snapshot
 
 		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
 		rf.currentTerm = args.Term
 		rf.offset = rf.snapshot.LastIncludedIndex
+
+		rf.convertToFollower()
+
 		reply.Term = args.Term
 		return
 	}
@@ -540,7 +547,7 @@ func (rf *Raft) makeAppendEntriesOrInstallSnapshotRequests() AppendEntriesOrInst
 			args.Term = currentTerm
 			args.LeaderId = rf.me
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
-			//log.Printf("%d: PrevLogIndex sent to %d was %d, snapshot last index %d", rf.me, serverIndex, args.PrevLogIndex, rf.snapshot.LastIncludedIndex)
+			log.Printf("%d: PrevLogIndex sent to %d was %d, snapshot last index %d", rf.me, serverIndex, args.PrevLogIndex, rf.snapshot.LastIncludedIndex)
 			args.Term = currentTerm
 			if args.PrevLogIndex == 0 {
 				args.PrevLogTerm = -1
@@ -643,36 +650,41 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 // Snapshots only contain entries that are already committed
 // lastIncludedIndex is 1 indexed
-func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int) bool {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	log.Printf("Server %d received with raftsize %d; command with offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
+func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int) {
+	if !rf.killed() {
+		if lastIncludedIndex < rf.snapshot.LastIncludedIndex {
+			// out of order transmission
+			return
+		}
+		storedSnapshot := Snapshot{}
+		storedSnapshot.LastIncludedIndex = lastIncludedIndex
+		storedSnapshot.LastIncludedTerm = lastIncludedTerm
+		storedSnapshot.Data = snapshot
 
-	rf.snapshot = Snapshot{}
-	rf.snapshot.LastIncludedIndex = lastIncludedIndex
-	rf.snapshot.LastIncludedTerm = lastIncludedTerm
-	rf.snapshot.Data = snapshot
+		snapshotBuffer := new(bytes.Buffer)
+		encoder := labgob.NewEncoder(snapshotBuffer)
 
-	snapshotBuffer := new(bytes.Buffer)
-	encoder := labgob.NewEncoder(snapshotBuffer)
+		encoder.Encode(storedSnapshot)
+		encodedSnapshot := snapshotBuffer.Bytes()
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
 
-	encoder.Encode(rf.snapshot)
-	encodedSnapshot := snapshotBuffer.Bytes()
+		log.Printf("Server %d received with raftsize %d; command with offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
 
-	log.Printf("%d: lastIncluded: %d; effectiveLogLength: %d", rf.me, lastIncludedIndex, rf.effectiveLogLength())
-	if lastIncludedIndex < rf.effectiveLogLength() {
-		rf.log = rf.log[lastIncludedIndex-rf.offset:]
-	} else {
-		rf.log = []LogEntry{}
+		log.Printf("%d: lastIncluded: %d; log length %d; offset %d; effectiveLogLength: %d", rf.me, lastIncludedIndex, len(rf.log), rf.offset, rf.effectiveLogLength())
+		if lastIncludedIndex < rf.effectiveLogLength() {
+			rf.log = rf.log[lastIncludedIndex-rf.offset:]
+		} else {
+			rf.log = []LogEntry{}
+		}
+		rf.offset = lastIncludedIndex
+		rf.snapshot = storedSnapshot
+
+		data := rf.encodeData()
+		rf.persister.SaveStateAndSnapshot(data, encodedSnapshot)
+
+		log.Printf("Server %d now has raftsize %d; offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
 	}
-	rf.offset = lastIncludedIndex
-
-	data := rf.encodeData()
-	rf.persister.SaveStateAndSnapshot(data, encodedSnapshot)
-
-	log.Printf("Server %d now has raftsize %d; offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
-
-	return true
 }
 
 func (rf *Raft) effectiveLogLength() int {
@@ -682,6 +694,7 @@ func (rf *Raft) effectiveLogLength() int {
 // bool represents if it is a LogEntry
 func (rf *Raft) getLogEntryOrSnapshot(index int) (LogEntry, Snapshot, bool) {
 	// it must be contained in the snapshot
+	log.Printf("%d: index %d, offset %d, loglen: %d, snapshot last %d", rf.me, index, rf.offset, len(rf.log), rf.snapshot.LastIncludedIndex)
 	if index < rf.offset {
 		return LogEntry{}, rf.snapshot, false
 	} else {
