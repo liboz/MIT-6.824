@@ -77,12 +77,12 @@ func (ck *Clerk) Get(key string) string {
 
 			select {
 			case <-time.After(TimeoutInterval):
-				DPrintf("timing out Get request to %d", i)
+				//DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
 				if reply.Err == OK || reply.Err == ErrNoKey {
 					ck.lastLeaderServer = i % len(ck.servers)
-					DPrintf("%d: Get %s with %s:%s", ck.lastLeaderServer, reply.Err, key, reply.Value)
+					//DPrintf("%d: Get %s with %s:%s", ck.lastLeaderServer, reply.Err, key, reply.Value)
 					return reply.Value
 				}
 			}
@@ -116,19 +116,19 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &PutAppendReply{}
-				DPrintf("Sending request from client to server %d", i)
+				//DPrintf("Sending request from client to server %d", i)
 				ck.servers[i%len(ck.servers)].Call("KVServer.PutAppend", args, reply)
 				responseCh <- reply
 			}(i)
 			select {
 			case <-time.After(TimeoutInterval):
-				DPrintf("timing out PutAppend request to %d", i)
+				//DPrintf("timing out PutAppend request to %d", i)
 				break
 			case reply := <-responseCh:
-				DPrintf("client reply from %d: %v", i, reply)
+				//DPrintf("client reply from %d: %v", i, reply)
 				if reply.Err == OK {
 					ck.lastLeaderServer = i % len(ck.servers)
-					DPrintf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
+					//DPrintf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
 					return
 				}
 			}
