@@ -71,6 +71,7 @@ type SaveSnapshotChItem struct {
 	Term  int
 	Index int
 	Data  map[string]string
+	Seen  map[int64]int
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -157,6 +158,7 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 		if msg.IsSnapshot {
 			snapshot := msg.Command.(map[string]string)
 			kv.KV = copyMap(snapshot)
+			kv.seen = copyMapInt64(msg.Seen)
 			log.Printf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
 		} else {
 			command := msg.Command.(Op)
@@ -200,8 +202,9 @@ func (kv *KVServer) getMessages() {
 				delete(kv.applyChanMap, index)
 				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
 					copy := copyMap(kv.KV)
-					log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, index, msg.Term, copy)
-					go kv.sendSaveSnapshotCh(index, msg.Term, copy)
+					copyOfSeen := copyMapInt64(kv.seen)
+					log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.me, index, msg.Term, copyOfSeen, copy)
+					go kv.sendSaveSnapshotCh(index, msg.Term, copy, copyOfSeen)
 				}
 				kv.mu.Unlock()
 				if ok {
@@ -234,11 +237,12 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 	}
 }
 
-func (kv *KVServer) sendSaveSnapshotCh(index int, term int, copyOfKV map[string]string) {
+func (kv *KVServer) sendSaveSnapshotCh(index int, term int, copyOfKV map[string]string, copyOfSeen map[int64]int) {
 	saveSnapshotMsg := SaveSnapshotChItem{}
 	saveSnapshotMsg.Index = index
 	saveSnapshotMsg.Term = term
 	saveSnapshotMsg.Data = copyOfKV
+	saveSnapshotMsg.Seen = copyOfSeen
 	select {
 	case kv.saveSnapshotCh <- saveSnapshotMsg:
 	case <-kv.killCh:
@@ -254,11 +258,19 @@ func copyMap(original map[string]string) map[string]string {
 	return copy
 }
 
+func copyMapInt64(original map[int64]int) map[int64]int {
+	copy := make(map[int64]int)
+	for key, value := range original {
+		copy[key] = value
+	}
+	return copy
+}
+
 func (kv *KVServer) listenSaveSnapshotCh() {
 	for {
 		select {
 		case msg := <-kv.saveSnapshotCh:
-			kv.rf.SaveSnapshot(msg.Data, msg.Index, msg.Term)
+			kv.rf.SaveSnapshot(msg.Data, msg.Index, msg.Term, msg.Seen)
 		case <-kv.killCh:
 			return
 		}

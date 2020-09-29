@@ -54,6 +54,7 @@ type ApplyMsg struct {
 	StateSize    int
 	Term         int
 	IsSnapshot   bool
+	Seen         map[int64]int
 }
 
 type LogEntry struct {
@@ -77,6 +78,7 @@ type Snapshot struct {
 	LastIncludedTerm  int
 	Data              map[string]string
 	LastIncludedIndex int
+	Seen              map[int64]int
 }
 
 type AppendEntriesOrInstallSnapshot struct {
@@ -665,7 +667,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 // Snapshots only contain entries that are already committed
 // lastIncludedIndex is 1 indexed
-func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int) {
+func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int, seen map[int64]int) {
 	if !rf.killed() {
 		rf.mu.Lock()
 		defer rf.mu.Unlock()
@@ -679,6 +681,7 @@ func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, 
 		storedSnapshot.LastIncludedIndex = lastIncludedIndex
 		storedSnapshot.LastIncludedTerm = lastIncludedTerm
 		storedSnapshot.Data = snapshot
+		storedSnapshot.Seen = seen
 
 		snapshotBuffer := new(bytes.Buffer)
 		encoder := labgob.NewEncoder(snapshotBuffer)
@@ -785,6 +788,7 @@ func (rf *Raft) sendToApplyCh() {
 					msg.Term = snapshot.LastIncludedTerm
 					msg.IsSnapshot = true
 					msg.CommandIndex = snapshot.LastIncludedIndex
+					msg.Seen = snapshot.Seen
 				}
 				DPrintf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, msg.Command, rf.commitIndex, rf.lastApplied+1)
 				msg.CommandValid = true
