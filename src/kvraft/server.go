@@ -70,6 +70,7 @@ type KVMapItem struct {
 type SaveSnapshotChItem struct {
 	Term  int
 	Index int
+	Data  map[string]string
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -156,6 +157,7 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 		if msg.IsSnapshot {
 			snapshot := msg.Command.(map[string]string)
 			kv.KV = copyMap(snapshot)
+			log.Printf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
 		} else {
 			command := msg.Command.(Op)
 			commandType := command.OperationType
@@ -196,10 +198,12 @@ func (kv *KVServer) getMessages() {
 				index := msg.CommandIndex
 				applyChanMapItem, ok := kv.applyChanMap[index]
 				delete(kv.applyChanMap, index)
-				kv.mu.Unlock()
 				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
-					go kv.sendSaveSnapshotCh(index, msg.Term)
+					copy := copyMap(kv.KV)
+					log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, index, msg.Term, copy)
+					go kv.sendSaveSnapshotCh(index, msg.Term, copy)
 				}
+				kv.mu.Unlock()
 				if ok {
 					kv.sendMessageToApplyChanMap(applyChanMapItem, command, val, err)
 				}
@@ -230,10 +234,11 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 	}
 }
 
-func (kv *KVServer) sendSaveSnapshotCh(index int, term int) {
+func (kv *KVServer) sendSaveSnapshotCh(index int, term int, copyOfKV map[string]string) {
 	saveSnapshotMsg := SaveSnapshotChItem{}
 	saveSnapshotMsg.Index = index
 	saveSnapshotMsg.Term = term
+	saveSnapshotMsg.Data = copyOfKV
 	select {
 	case kv.saveSnapshotCh <- saveSnapshotMsg:
 	case <-kv.killCh:
@@ -253,11 +258,7 @@ func (kv *KVServer) listenSaveSnapshotCh() {
 	for {
 		select {
 		case msg := <-kv.saveSnapshotCh:
-			kv.mu.Lock()
-			copy := copyMap(kv.KV)
-			log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; data: %v", kv.me, msg.Index, msg.Term, copy)
-			kv.mu.Unlock()
-			kv.rf.SaveSnapshot(copy, msg.Index, msg.Term)
+			kv.rf.SaveSnapshot(msg.Data, msg.Index, msg.Term)
 		case <-kv.killCh:
 			return
 		}

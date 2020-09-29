@@ -562,12 +562,14 @@ func (rf *Raft) makeAppendEntriesOrInstallSnapshotRequests() AppendEntriesOrInst
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
 			log.Printf("%d: PrevLogIndex sent to %d was %d, snapshot last index %d", rf.me, serverIndex, args.PrevLogIndex, rf.snapshot.LastIncludedIndex)
 			args.Term = currentTerm
-			if args.PrevLogIndex == 0 {
-				args.PrevLogTerm = -1
-			} else if args.PrevLogIndex < rf.snapshot.LastIncludedIndex {
+			if args.PrevLogIndex < rf.snapshot.LastIncludedIndex {
 				installSnapshotArgs := rf.makeSnapshotArgs(currentTerm)
 				requests.InstallSnapshots[serverIndex] = installSnapshotArgs
 				continue
+			}
+
+			if args.PrevLogIndex == 0 {
+				args.PrevLogTerm = -1
 			} else {
 				logEntry, snapshot, isLogEntry := rf.getLogEntryOrSnapshot(args.PrevLogIndex - 1)
 				if isLogEntry {
