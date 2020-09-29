@@ -144,7 +144,7 @@ func (rf *Raft) persist() {
 //
 // restore previously persisted state.
 //
-func (rf *Raft) readPersist(data []byte) {
+func (rf *Raft) readPersist(data []byte, snapshotData []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	} else {
@@ -153,14 +153,20 @@ func (rf *Raft) readPersist(data []byte) {
 		var currentTerm int
 		var votedFor int
 		var savedLog []LogEntry
-		if d.Decode(&currentTerm) != nil ||
-			d.Decode(&votedFor) != nil || d.Decode(&savedLog) != nil {
+		snapshotR := bytes.NewBuffer(snapshotData)
+		snapshotD := labgob.NewDecoder(snapshotR)
+		var snapshot Snapshot
+		snapshotD.Decode(&snapshot) // ignore error when snapshot doesn't exist
+
+		if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&savedLog) != nil {
 			DPrint("error reading persisted")
 		} else {
-			DPrint("persistedLog on server ", rf.me, " is:", currentTerm, votedFor, savedLog)
+			DPrint("persistedLog on server ", rf.me, " is:", currentTerm, votedFor, savedLog, snapshot)
 			rf.currentTerm = currentTerm
 			rf.votedFor = votedFor
 			rf.log = savedLog
+			rf.snapshot = snapshot
+			rf.offset = snapshot.LastIncludedIndex // 0 when snapshot is undefined
 		}
 	}
 }
@@ -278,7 +284,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 		if len(args.Entries) > 0 {
-			DPrint("AppendEntries received by server ", rf.me, " from server ", args.LeaderId, ". ", args.PrevLogIndex, rf.log, args.Entries)
+			log.Print("AppendEntries received by server ", rf.me, " from server ", args.LeaderId, ". ", args.PrevLogIndex, rf.log, args.Entries)
 		}
 		rf.lastHeartbeat = time.Now()
 		if args.PrevLogIndex != 0 {
@@ -290,6 +296,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				reply.XTerm = -1
 				reply.XIndex = -1
 				reply.XLength = effectiveLength
+				return
+			} else if rf.snapshot.Data != nil && args.PrevLogIndex < rf.snapshot.LastIncludedIndex {
+				reply.Term = rf.currentTerm
+				reply.Success = false
+				reply.XTerm = -1
+				reply.XIndex = -1
+				reply.XLength = rf.snapshot.LastIncludedIndex
 				return
 			}
 
@@ -652,6 +665,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // lastIncludedIndex is 1 indexed
 func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int) {
 	if !rf.killed() {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		log.Printf("Server %d received with raftsize %d; command with offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
+
 		if lastIncludedIndex < rf.snapshot.LastIncludedIndex {
 			// out of order transmission
 			return
@@ -666,10 +683,6 @@ func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, 
 
 		encoder.Encode(storedSnapshot)
 		encodedSnapshot := snapshotBuffer.Bytes()
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
-
-		log.Printf("Server %d received with raftsize %d; command with offset %d; snapshot %v; log with length %d: %v", rf.me, rf.persister.RaftStateSize(), rf.offset, rf.snapshot, len(rf.log), rf.log)
 
 		log.Printf("%d: lastIncluded: %d; log length %d; offset %d; effectiveLogLength: %d", rf.me, lastIncludedIndex, len(rf.log), rf.offset, rf.effectiveLogLength())
 		if lastIncludedIndex < rf.effectiveLogLength() {
@@ -694,7 +707,7 @@ func (rf *Raft) effectiveLogLength() int {
 // bool represents if it is a LogEntry
 func (rf *Raft) getLogEntryOrSnapshot(index int) (LogEntry, Snapshot, bool) {
 	// it must be contained in the snapshot
-	log.Printf("%d: index %d, offset %d, loglen: %d, snapshot last %d", rf.me, index, rf.offset, len(rf.log), rf.snapshot.LastIncludedIndex)
+	//log.Printf("%d: index %d, offset %d, loglen: %d, snapshot last %d", rf.me, index, rf.offset, len(rf.log), rf.snapshot.LastIncludedIndex)
 	if index < rf.offset {
 		return LogEntry{}, rf.snapshot, false
 	} else {
@@ -957,7 +970,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
 	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
+	rf.readPersist(persister.ReadRaftState(), persister.ReadSnapshot())
 
 	// Your initialization code here (2A, 2B, 2C).
 	go func() {
