@@ -16,3 +16,4 @@ jobs:
         run: |
           cd src/kvraft
           go test -run 3A -race
+          go test -run 3B -race
