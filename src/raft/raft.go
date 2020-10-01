@@ -290,6 +290,14 @@ func (rf *Raft) convertToFollower() {
 	rf.state = Follower
 }
 
+func (rf *Raft) makeXLengthResponse(reply *AppendEntriesReply, xLength int) {
+	reply.Term = rf.currentTerm
+	reply.Success = false
+	reply.XTerm = -1
+	reply.XIndex = -1
+	reply.XLength = xLength
+}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
@@ -308,18 +316,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			// longer than current log
 			effectiveLength := rf.effectiveLogLength()
 			if args.PrevLogIndex > effectiveLength {
-				reply.Term = rf.currentTerm
-				reply.Success = false
-				reply.XTerm = -1
-				reply.XIndex = -1
-				reply.XLength = effectiveLength
+				rf.makeXLengthResponse(reply, effectiveLength)
 				return
 			} else if rf.snapshot.Data != nil && args.PrevLogIndex < rf.snapshot.LastIncludedIndex {
-				reply.Term = rf.currentTerm
-				reply.Success = false
-				reply.XTerm = -1
-				reply.XIndex = -1
-				reply.XLength = rf.snapshot.LastIncludedIndex
+				rf.makeXLengthResponse(reply, rf.snapshot.LastIncludedIndex)
 				return
 			}
 
@@ -345,6 +345,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 				return
 			}
+		}
+
+		// consider the case when leader has not received a single response from follower, but follower has already snapshotted
+		if rf.offset > 0 && args.PrevLogIndex < rf.offset {
+			rf.makeXLengthResponse(reply, rf.snapshot.LastIncludedIndex)
+			return
 		}
 
 		if args.Term > rf.currentTerm {
