@@ -260,7 +260,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		}
 		if args.Term > rf.currentTerm {
 			// update current term and remove votedFor and convert to follower
-			log.Print("Server ", rf.me, ": follower and updating term from ", args.Term, " compared to current term of ", rf.currentTerm)
+			DPrint("Server ", rf.me, ": follower and updating term from ", args.Term, " compared to current term of ", rf.currentTerm)
 			rf.stepDown(args.Term)
 		}
 
@@ -459,7 +459,7 @@ func (rf *Raft) becomeCandidate() {
 	}
 	rf.mu.Lock()
 	rf.currentTerm += 1
-	log.Print("Server ", rf.me, " becoming candidate for term ", rf.currentTerm)
+	DPrint("Server ", rf.me, " becoming candidate for term ", rf.currentTerm)
 	rf.state = Candidate
 	rf.votedFor = rf.me
 	rf.electionTimeout = generateElectionTimeOut()
@@ -588,7 +588,7 @@ func (rf *Raft) makeAppendEntriesOrInstallSnapshotRequests() AppendEntriesOrInst
 			args.Term = currentTerm
 			args.LeaderId = rf.me
 			args.PrevLogIndex = rf.nextIndex[serverIndex] - 1
-			log.Printf("%d: PrevLogIndex sent to %d was %d, snapshot last index %d", rf.me, serverIndex, args.PrevLogIndex, rf.snapshot.LastIncludedIndex)
+			DPrintf("%d: PrevLogIndex sent to %d was %d, snapshot last index %d", rf.me, serverIndex, args.PrevLogIndex, rf.snapshot.LastIncludedIndex)
 			args.Term = currentTerm
 			if args.PrevLogIndex < rf.snapshot.LastIncludedIndex {
 				installSnapshotArgs := rf.makeSnapshotArgs(currentTerm)
@@ -831,7 +831,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 		rf.mu.Lock()
 		//DPrint("server ", rf.me, "is leader?", rf.state == Leader)
 		if rf.state == Leader {
-			log.Print("Received appendEntries response to request from id ", rf.me, " to id ", fullResponse.ServerIndex, " for term ",
+			DPrint("Received appendEntries response to request from id ", rf.me, " to id ", fullResponse.ServerIndex, " for term ",
 				fullResponse.Request.Term, " response term is ", fullResponse.Response.Term, ". ", fullResponse)
 
 			if !fullResponse.Response.Success {
@@ -842,7 +842,7 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 					rf.mu.Unlock()
 					continue
 				} else if rf.nextIndex[fullResponse.ServerIndex] != 1 { // follower's log is out of sync with the leader
-					log.Print("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
+					DPrint("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
 					lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
 					if fullResponse.Response.XLength != -1 {
 						rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
@@ -851,12 +851,12 @@ func (rf *Raft) listenToAppendEntriesResponseCh() {
 					} else {
 						rf.nextIndex[fullResponse.ServerIndex] = fullResponse.Response.XIndex // min value of 1
 					}
-					log.Print("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
+					DPrint("nextIndex for server ", fullResponse.ServerIndex, " was updated to ", rf.nextIndex[fullResponse.ServerIndex], fullResponse.Response)
 
 				}
 			} else {
 				newLengthFromRequest := len(fullResponse.Request.Entries) + fullResponse.Request.PrevLogIndex
-				log.Print("updating matchIndex ", rf.matchIndex[fullResponse.ServerIndex], " and nextIndex ", rf.nextIndex[fullResponse.ServerIndex], " for server ", fullResponse.ServerIndex, " to ", newLengthFromRequest)
+				DPrint("updating matchIndex ", rf.matchIndex[fullResponse.ServerIndex], " and nextIndex ", rf.nextIndex[fullResponse.ServerIndex], " for server ", fullResponse.ServerIndex, " to ", newLengthFromRequest)
 				rf.matchIndex[fullResponse.ServerIndex] = max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
 				rf.nextIndex[fullResponse.ServerIndex] = max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
 			}
