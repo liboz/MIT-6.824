@@ -298,6 +298,27 @@ func (rf *Raft) makeXLengthResponse(reply *AppendEntriesReply, xLength int) {
 	reply.XLength = xLength
 }
 
+func (rf *Raft) appendEntriesToFirstNonMatchEntryInLog(args *AppendEntriesArgs) {
+	//log.Printf("%d: before offset: %d; length: %d; log:  %v", rf.me, rf.offset, rf.effectiveLogLength(), rf.log)
+	initialIndex := args.PrevLogIndex // this is the previous entry in the log
+	if rf.offset != 0 {
+		initialIndex = initialIndex - rf.offset
+	}
+	index := initialIndex
+	for i := 0; i < len(args.Entries) && index+rf.offset < rf.effectiveLogLength(); i++ {
+		if rf.log[index].Term != args.Entries[i].Term {
+			break
+		}
+		index += 1
+	}
+	// if all matching don't reduce the length of the log
+	if len(args.Entries[index-initialIndex:]) > 0 {
+		slice := rf.log[:index]
+		rf.log = append(slice, args.Entries[index-initialIndex:]...)
+	}
+	//log.Printf("%d: after %v", rf.me, rf.log)
+}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
@@ -359,8 +380,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 		if len(args.Entries) != 0 {
-			slice := rf.log[:args.PrevLogIndex-rf.offset]
-			rf.log = append(slice, args.Entries...)
+			rf.appendEntriesToFirstNonMatchEntryInLog(args)
 		}
 
 		if args.LeaderCommit > rf.commitIndex {
@@ -390,9 +410,14 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 			return
 		}
 		lastIncludedIndex := args.Snapshot.LastIncludedIndex
+		if rf.snapshot.Data != nil && lastIncludedIndex < rf.snapshot.LastIncludedIndex {
+			reply.Term = rf.currentTerm
+			return
+		}
 
 		rf.lastHeartbeat = time.Now()
-		if lastIncludedIndex > rf.snapshot.LastIncludedIndex && lastIncludedIndex < rf.effectiveLogLength() {
+		// equal for the rare case of our of order install snapshot messages
+		if lastIncludedIndex >= rf.snapshot.LastIncludedIndex && lastIncludedIndex < rf.effectiveLogLength() {
 			rf.log = rf.log[lastIncludedIndex-rf.offset:]
 		} else {
 			rf.log = []LogEntry{}
@@ -524,10 +549,8 @@ func (rf *Raft) becomeCandidate() {
 				rf.mu.Lock()
 				rf.state = Leader
 				rf.initializeMatchAndNextIndex()
-				requests := rf.makeAppendEntriesOrInstallSnapshotRequests()
 				log.Printf("Enough servers have voted for index %d. Becoming leader for term %d", rf.me, rf.currentTerm)
-				rf.mu.Unlock()
-				rf.sendAppendEntriesOrInstallSnapshotToAll(requests)
+				rf.replicateEntries()
 				return
 			}
 		case <-time.After(rf.electionTimeout):
@@ -687,6 +710,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index = rf.effectiveLogLength()
 	rf.matchIndex[rf.me] = index
 	rf.persist()
+	go func() {
+		rf.checkLeaderAndMaybeReplicateEntries()
+	}()
 
 	return index, term, isLeader
 }
@@ -776,16 +802,24 @@ func (rf *Raft) loopMaybeBecomeCandidate() {
 	}
 }
 
+func (rf *Raft) replicateEntries() {
+	requests := rf.makeAppendEntriesOrInstallSnapshotRequests()
+	rf.mu.Unlock()
+	rf.sendAppendEntriesOrInstallSnapshotToAll(requests)
+}
+
+func (rf *Raft) checkLeaderAndMaybeReplicateEntries() {
+	rf.mu.Lock()
+	if rf.state == Leader {
+		rf.replicateEntries()
+	} else {
+		rf.mu.Unlock()
+	}
+}
+
 func (rf *Raft) loopAppendEntries() {
 	for !rf.killed() {
-		rf.mu.RLock()
-		if rf.state == Leader {
-			requests := rf.makeAppendEntriesOrInstallSnapshotRequests()
-			rf.mu.RUnlock()
-			rf.sendAppendEntriesOrInstallSnapshotToAll(requests)
-		} else {
-			rf.mu.RUnlock()
-		}
+		rf.checkLeaderAndMaybeReplicateEntries()
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -796,6 +830,7 @@ func (rf *Raft) sendToApplyCh() {
 		if rf.commitIndex > rf.lastApplied {
 			for rf.commitIndex > rf.lastApplied {
 				msg := ApplyMsg{}
+				//log.Printf("%d: before sending, length was %d, last applied %d", rf.me, rf.effectiveLogLength(), rf.lastApplied)
 				logEntry, snapshot, isLogEntry := rf.getLogEntryOrSnapshot(rf.lastApplied)
 				if isLogEntry {
 					msg.Command = logEntry.Data
