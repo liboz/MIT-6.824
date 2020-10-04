@@ -76,8 +76,8 @@ type InstallSnapshotResponse struct {
 
 type Snapshot struct {
 	LastIncludedTerm  int
-	Data              map[string]string
 	LastIncludedIndex int
+	Data              map[string]string
 	Seen              map[int64]int
 }
 
