@@ -52,7 +52,6 @@ type KVServer struct {
 	applyChanMap            map[int]ApplyChanMapItem
 	killCh                  chan bool
 	raftStateSizeToSnapshot int
-	saveSnapshotCh          chan SaveSnapshotChItem
 
 	// Your definitions here.
 }
@@ -65,13 +64,6 @@ type ApplyChanMapItem struct {
 type KVMapItem struct {
 	err Err
 	val string
-}
-
-type SaveSnapshotChItem struct {
-	Term  int
-	Index int
-	Data  map[string]string
-	Seen  map[int64]int
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -204,7 +196,7 @@ func (kv *KVServer) getMessages() {
 					copy := copyMap(kv.KV)
 					copyOfSeen := copyMapInt64(kv.seen)
 					log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.me, index, msg.Term, copyOfSeen, copy)
-					go kv.sendSaveSnapshotCh(index, msg.Term, copy, copyOfSeen)
+					go kv.sendSaveSnapshot(index, msg.Term, copy, copyOfSeen)
 				}
 				kv.mu.Unlock()
 				if ok {
@@ -237,17 +229,8 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 	}
 }
 
-func (kv *KVServer) sendSaveSnapshotCh(index int, term int, copyOfKV map[string]string, copyOfSeen map[int64]int) {
-	saveSnapshotMsg := SaveSnapshotChItem{}
-	saveSnapshotMsg.Index = index
-	saveSnapshotMsg.Term = term
-	saveSnapshotMsg.Data = copyOfKV
-	saveSnapshotMsg.Seen = copyOfSeen
-	select {
-	case kv.saveSnapshotCh <- saveSnapshotMsg:
-	case <-kv.killCh:
-		return
-	}
+func (kv *KVServer) sendSaveSnapshot(index int, term int, copyOfKV map[string]string, copyOfSeen map[int64]int) {
+	kv.rf.SaveSnapshot(copyOfKV, index, term, copyOfSeen)
 }
 
 func copyMap(original map[string]string) map[string]string {
@@ -264,17 +247,6 @@ func copyMapInt64(original map[int64]int) map[int64]int {
 		copy[key] = value
 	}
 	return copy
-}
-
-func (kv *KVServer) listenSaveSnapshotCh() {
-	for {
-		select {
-		case msg := <-kv.saveSnapshotCh:
-			kv.rf.SaveSnapshot(msg.Data, msg.Index, msg.Term, msg.Seen)
-		case <-kv.killCh:
-			return
-		}
-	}
 }
 
 //
@@ -332,14 +304,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.applyChanMap = make(map[int]ApplyChanMapItem)
 	kv.killCh = make(chan bool)
 	kv.raftStateSizeToSnapshot = int(math.Trunc(float64(kv.maxraftstate) * 0.8))
-	kv.saveSnapshotCh = make(chan SaveSnapshotChItem)
 
 	go func() {
 		kv.getMessages()
-	}()
-
-	go func() {
-		kv.listenSaveSnapshotCh()
 	}()
 
 	return kv

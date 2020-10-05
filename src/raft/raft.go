@@ -316,7 +316,7 @@ func (rf *Raft) appendEntriesToFirstNonMatchEntryInLog(args *AppendEntriesArgs) 
 		slice := rf.log[:index]
 		rf.log = append(slice, args.Entries[index-initialIndex:]...)
 	}
-	//log.Printf("%d: after %v", rf.me, rf.log)
+	//log.Printf("%d: after length %d; log: %v", rf.me, rf.effectiveLogLength(), rf.log)
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -330,7 +330,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 		if len(args.Entries) > 0 {
-			log.Print("AppendEntries received by server ", rf.me, " from server ", args.LeaderId, ". ", args.PrevLogIndex, rf.log, args.Entries)
+			log.Print("AppendEntries received by server ", rf.me, " from server ", args.LeaderId, ". ", args.PrevLogIndex, args.LeaderCommit, rf.log, args.Entries)
 		}
 		rf.lastHeartbeat = time.Now()
 		if args.PrevLogIndex != 0 {
@@ -383,9 +383,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.appendEntriesToFirstNonMatchEntryInLog(args)
 		}
 
+		//log.Printf("%d: previous commitIndex %d; args.LeaderCommit %d; prevLogIndex %d; argsLength: %d", rf.me, rf.commitIndex, args.LeaderCommit, args.PrevLogIndex, len(args.Entries))
 		if args.LeaderCommit > rf.commitIndex {
-			rf.commitIndex = min(args.LeaderCommit, rf.effectiveLogLength())
+			rf.commitIndex = min(args.LeaderCommit, args.PrevLogIndex+len(args.Entries))
 		}
+		//log.Printf("%d: after commitIndex %d", rf.me, rf.commitIndex)
+
 		rf.persist()
 
 		rf.convertToFollower()
@@ -824,35 +827,43 @@ func (rf *Raft) loopAppendEntries() {
 	}
 }
 
+func (rf *Raft) createApplyChMessages() []ApplyMsg {
+	var messages []ApplyMsg
+	for rf.commitIndex > rf.lastApplied {
+		msg := ApplyMsg{}
+		//log.Printf("%d: before sending, length was %d, last applied %d", rf.me, rf.effectiveLogLength(), rf.lastApplied)
+		logEntry, snapshot, isLogEntry := rf.getLogEntryOrSnapshot(rf.lastApplied)
+		if isLogEntry {
+			msg.Command = logEntry.Data
+			msg.Term = logEntry.Term
+			msg.IsSnapshot = false
+			msg.CommandIndex = rf.lastApplied + 1
+		} else {
+			msg.Command = snapshot.Data
+			msg.Term = snapshot.LastIncludedTerm
+			msg.IsSnapshot = true
+			msg.CommandIndex = snapshot.LastIncludedIndex
+			msg.Seen = snapshot.Seen
+		}
+		DPrintf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, msg.Command, rf.commitIndex, rf.lastApplied+1)
+		msg.CommandValid = true
+		msg.StateSize = rf.persister.RaftStateSize()
+		rf.lastApplied = msg.CommandIndex
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
 func (rf *Raft) sendToApplyCh() {
 	for !rf.killed() {
 		rf.mu.Lock()
 		if rf.commitIndex > rf.lastApplied {
-			for rf.commitIndex > rf.lastApplied {
-				msg := ApplyMsg{}
-				//log.Printf("%d: before sending, length was %d, last applied %d", rf.me, rf.effectiveLogLength(), rf.lastApplied)
-				logEntry, snapshot, isLogEntry := rf.getLogEntryOrSnapshot(rf.lastApplied)
-				if isLogEntry {
-					msg.Command = logEntry.Data
-					msg.Term = logEntry.Term
-					msg.IsSnapshot = false
-					msg.CommandIndex = rf.lastApplied + 1
-				} else {
-					msg.Command = snapshot.Data
-					msg.Term = snapshot.LastIncludedTerm
-					msg.IsSnapshot = true
-					msg.CommandIndex = snapshot.LastIncludedIndex
-					msg.Seen = snapshot.Seen
-				}
-				DPrintf("sending from server %d; entry : %v; commitIndex: %d; lastAppliedIndex: %d", rf.me, msg.Command, rf.commitIndex, rf.lastApplied+1)
-				msg.CommandValid = true
-				msg.StateSize = rf.persister.RaftStateSize()
-				rf.mu.Unlock()
-				rf.applyCh <- msg
-				rf.mu.Lock()
-				rf.lastApplied = msg.CommandIndex
-			}
+			messages := rf.createApplyChMessages()
 			rf.mu.Unlock()
+			//log.Printf("%d: messages length %d", rf.me, len(messages))
+			for _, msg := range messages {
+				rf.applyCh <- msg
+			}
 		} else {
 			rf.mu.Unlock()
 		}
