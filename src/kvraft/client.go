@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	TimeoutInterval = time.Duration(1 * time.Second)
+	TimeoutClientInterval = time.Duration(2 * time.Second)
 )
 
 type Clerk struct {
@@ -76,7 +76,7 @@ func (ck *Clerk) Get(key string) string {
 			}(i)
 
 			select {
-			case <-time.After(TimeoutInterval):
+			case <-time.After(TimeoutClientInterval):
 				//DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
@@ -121,7 +121,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				responseCh <- reply
 			}(i)
 			select {
-			case <-time.After(TimeoutInterval):
+			case <-time.After(TimeoutClientInterval):
 				//DPrintf("timing out PutAppend request to %d", i)
 				break
 			case reply := <-responseCh:

@@ -28,6 +28,10 @@ func DPrint(v ...interface{}) (n int, err error) {
 	return
 }
 
+const (
+	TimeoutServerInterval = time.Duration(1 * time.Second)
+)
+
 type Op struct {
 	Key                   string
 	Value                 string
@@ -104,7 +108,7 @@ func (kv *KVServer) startOp(op Op, OpType string) (string, Err) {
 		kv.mu.Unlock()
 
 		select {
-		case <-time.After(TimeoutInterval):
+		case <-time.After(TimeoutServerInterval):
 			DPrintf("%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.me, OpType, expectedIndex, op)
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
