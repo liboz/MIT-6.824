@@ -8,9 +8,7 @@ import (
 	"../labrpc"
 )
 
-const (
-	TimeoutClientInterval = time.Duration(2 * time.Second)
-)
+var timeoutClientIntervals = []time.Duration{time.Duration(1 * time.Second), time.Duration(2 * time.Second), time.Duration(4 * time.Second)}
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
@@ -67,7 +65,7 @@ func (ck *Clerk) Get(key string) string {
 	args.Key = key
 	responseCh := make(chan *GetReply)
 	initialServer := ck.getInitialServer()
-	for {
+	for attemptNumber := 0; ; attemptNumber++ {
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &GetReply{}
@@ -76,7 +74,7 @@ func (ck *Clerk) Get(key string) string {
 			}(i)
 
 			select {
-			case <-time.After(TimeoutClientInterval):
+			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals))]):
 				//DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
@@ -112,7 +110,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Op = op
 	initialServer := ck.getInitialServer()
 	responseCh := make(chan *PutAppendReply)
-	for {
+	for attemptNumber := 0; ; attemptNumber++ {
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			go func(i int) {
 				reply := &PutAppendReply{}
@@ -121,7 +119,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				responseCh <- reply
 			}(i)
 			select {
-			case <-time.After(TimeoutClientInterval):
+			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals))]):
 				//DPrintf("timing out PutAppend request to %d", i)
 				break
 			case reply := <-responseCh:

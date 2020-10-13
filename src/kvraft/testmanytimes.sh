@@ -3,7 +3,7 @@ counter=1
 while [ $counter -le 100 ]
 do
 echo "Iteration: $counter"
-go test -run 3A -race > b.txt
+go test -race > b.txt
 if [ $? -eq 1 ]; then 
     exit 0
 fi
