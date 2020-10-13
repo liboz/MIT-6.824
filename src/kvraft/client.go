@@ -74,7 +74,7 @@ func (ck *Clerk) Get(key string) string {
 			}(i)
 
 			select {
-			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals))]):
+			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals)-1)]):
 				//DPrintf("timing out Get request to %d", i)
 				break
 			case reply := <-responseCh:
@@ -119,7 +119,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				responseCh <- reply
 			}(i)
 			select {
-			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals))]):
+			case <-time.After(timeoutClientIntervals[Min(attemptNumber, len(timeoutClientIntervals)-1)]):
 				//DPrintf("timing out PutAppend request to %d", i)
 				break
 			case reply := <-responseCh:
