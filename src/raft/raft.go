@@ -104,8 +104,7 @@ type Raft struct {
 	nextIndex   []int               //for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
 	matchIndex  []int               // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
-	applyCh                   chan ApplyMsg
-	installSnapshotResponseCh chan InstallSnapshotResponse
+	applyCh chan ApplyMsg
 
 	electionTimeout time.Duration // time before timingout election
 	lastHeartbeat   time.Time     // Time of last heartbeat
@@ -655,7 +654,7 @@ func (rf *Raft) sendAppendEntriesOrInstallSnapshotToAll(requests AppendEntriesOr
 
 			fullResponse.Response = *reply
 			if ok {
-				go rf.handleAppendEntriesResponseMessage(fullResponse)
+				rf.handleAppendEntriesResponseMessage(fullResponse)
 			}
 		}(serverIndex, request)
 	}
@@ -669,7 +668,7 @@ func (rf *Raft) sendAppendEntriesOrInstallSnapshotToAll(requests AppendEntriesOr
 
 			fullResponse.Response = *reply
 			if ok {
-				rf.installSnapshotResponseCh <- fullResponse
+				rf.handleInstallSnapshotResponseMessage(fullResponse)
 			}
 		}(serverIndex, request)
 	}
@@ -927,13 +926,6 @@ func (rf *Raft) handleInstallSnapshotResponseMessage(fullResponse InstallSnapsho
 
 }
 
-func (rf *Raft) listenToInstallSnapshotResponseCh() {
-	for !rf.killed() {
-		fullResponse := <-rf.installSnapshotResponseCh
-		go rf.handleInstallSnapshotResponseMessage(fullResponse)
-	}
-}
-
 func (rf *Raft) maybeUpdateCommitIndex() {
 	originalCommitIndex := rf.commitIndex
 	log.Print("updating commitIndex maybe", originalCommitIndex, rf.matchIndex, ". log is ", rf.log)
@@ -1033,7 +1025,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.matchIndex = make([]int, len(peers))
 	rf.offset = 0
 	rf.initializeMatchAndNextIndex()
-	rf.installSnapshotResponseCh = make(chan InstallSnapshotResponse)
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
 	// initialize from state persisted before a crash
@@ -1050,10 +1041,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go func() {
 		rf.sendToApplyCh()
-	}()
-
-	go func() {
-		rf.listenToInstallSnapshotResponseCh()
 	}()
 
 	log.SetFlags(log.Lmicroseconds)
