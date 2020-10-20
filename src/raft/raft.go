@@ -105,7 +105,6 @@ type Raft struct {
 	matchIndex  []int               // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	applyCh                   chan ApplyMsg
-	appendEntriesResponseCh   chan AppendEntriesResponse
 	installSnapshotResponseCh chan InstallSnapshotResponse
 
 	electionTimeout time.Duration // time before timingout election
@@ -656,7 +655,7 @@ func (rf *Raft) sendAppendEntriesOrInstallSnapshotToAll(requests AppendEntriesOr
 
 			fullResponse.Response = *reply
 			if ok {
-				rf.appendEntriesResponseCh <- fullResponse
+				go rf.handleAppendEntriesResponseMessage(fullResponse)
 			}
 		}(serverIndex, request)
 	}
@@ -904,13 +903,6 @@ func (rf *Raft) handleAppendEntriesResponseMessage(fullResponse AppendEntriesRes
 	}
 }
 
-func (rf *Raft) listenToAppendEntriesResponseCh() {
-	for !rf.killed() {
-		fullResponse := <-rf.appendEntriesResponseCh
-		rf.handleAppendEntriesResponseMessage(fullResponse)
-	}
-}
-
 func (rf *Raft) handleInstallSnapshotResponseMessage(fullResponse InstallSnapshotResponse) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -1041,7 +1033,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.matchIndex = make([]int, len(peers))
 	rf.offset = 0
 	rf.initializeMatchAndNextIndex()
-	rf.appendEntriesResponseCh = make(chan AppendEntriesResponse)
 	rf.installSnapshotResponseCh = make(chan InstallSnapshotResponse)
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
@@ -1059,10 +1050,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go func() {
 		rf.sendToApplyCh()
-	}()
-
-	go func() {
-		rf.listenToAppendEntriesResponseCh()
 	}()
 
 	go func() {
