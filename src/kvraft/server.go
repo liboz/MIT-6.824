@@ -12,7 +12,7 @@ import (
 	"../raft"
 )
 
-const Debug = 1
+const Debug = 0
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug > 0 {
@@ -155,7 +155,7 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 			snapshot := msg.Command.(map[string]string)
 			kv.KV = copyMap(snapshot)
 			kv.seen = copyMapInt64(msg.Seen)
-			log.Printf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
+			DPrintf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
 		} else {
 			command := msg.Command.(Op)
 			commandType := command.OperationType
@@ -199,7 +199,7 @@ func (kv *KVServer) getMessages() {
 				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
 					copy := copyMap(kv.KV)
 					copyOfSeen := copyMapInt64(kv.seen)
-					log.Printf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.me, index, msg.Term, copyOfSeen, copy)
+					DPrintf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.me, index, msg.Term, copyOfSeen, copy)
 					go kv.sendSaveSnapshot(index, msg.Term, copy, copyOfSeen)
 				}
 				kv.mu.Unlock()
