@@ -998,6 +998,7 @@ func (rf *Raft) findLastInLog(targetTerm int) int {
 // for any long-running work.
 //
 func generateElectionTimeOut() time.Duration {
+	//500ms to 1500ms
 	return time.Duration(rand.Intn(1500-500)+500) * time.Millisecond
 }
 
@@ -1034,6 +1035,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
 	rf.offset = 0
+	// min time of random election is 500ms
 	rf.lastHeartbeat = time.Now().Add(-time.Duration(500) * time.Millisecond)
 	rf.killCh = make(chan bool)
 	rf.maybeSendApplyChCh = make(chan bool)
