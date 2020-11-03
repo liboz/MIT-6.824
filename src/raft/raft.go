@@ -110,6 +110,8 @@ type Raft struct {
 	lastHeartbeat   time.Time     // Time of last heartbeat
 	offset          int
 	snapshot        Snapshot
+	killCh          chan bool
+	applyMessagesCh chan []ApplyMsg
 }
 
 // return currentTerm and whether this server
@@ -377,6 +379,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//log.Printf("%d: previous commitIndex %d; args.LeaderCommit %d; prevLogIndex %d; argsLength: %d", rf.me, rf.commitIndex, args.LeaderCommit, args.PrevLogIndex, len(args.Entries))
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = max(rf.commitIndex, min(args.LeaderCommit, args.PrevLogIndex+len(args.Entries)))
+			rf.maybeSend()
 		}
 		//log.Printf("%d: after commitIndex %d", rf.me, rf.commitIndex)
 
@@ -420,6 +423,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.offset = rf.snapshot.LastIncludedIndex
 
 		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
+		rf.maybeSend()
 		rf.currentTerm = args.Term
 
 		rf.persistSnapshot(args.Snapshot)
@@ -775,6 +779,7 @@ func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	DPrint("server id ", rf.me, " has been killed")
 	// Your code here, if desired.
+	close(rf.killCh)
 }
 
 func (rf *Raft) killed() bool {
@@ -846,19 +851,16 @@ func (rf *Raft) createApplyChMessages() []ApplyMsg {
 }
 
 func (rf *Raft) sendToApplyCh() {
-	for !rf.killed() {
-		rf.mu.Lock()
-		if rf.commitIndex > rf.lastApplied {
-			messages := rf.createApplyChMessages()
-			rf.mu.Unlock()
+	for {
+		select {
+		case messages := <-rf.applyMessagesCh:
 			DPrintf("%d: messages length %d", rf.me, len(messages))
 			for _, msg := range messages {
 				rf.applyCh <- msg
 			}
-		} else {
-			rf.mu.Unlock()
+		case <-rf.killCh:
+			return
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 }
 
@@ -923,6 +925,7 @@ func (rf *Raft) handleInstallSnapshotResponseMessage(fullResponse InstallSnapsho
 }
 
 func (rf *Raft) maybeUpdateCommitIndex() {
+	defer rf.maybeSend()
 	originalCommitIndex := rf.commitIndex
 	DPrint("updating commitIndex maybe", originalCommitIndex, rf.matchIndex, ". log is ", rf.log)
 	for N := originalCommitIndex + 1; N <= rf.effectiveLogLength(); N++ {
@@ -1003,6 +1006,13 @@ func (rf *Raft) initializeMatchAndNextIndex() {
 	}
 }
 
+func (rf *Raft) maybeSend() {
+	if rf.commitIndex > rf.lastApplied {
+		messages := rf.createApplyChMessages()
+		rf.applyMessagesCh <- messages
+	}
+}
+
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
@@ -1020,6 +1030,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
 	rf.offset = 0
+	rf.lastHeartbeat = time.Now().Add(-time.Duration(500) * time.Millisecond)
+	rf.killCh = make(chan bool)
+	rf.applyMessagesCh = make(chan []ApplyMsg)
+
 	rf.initializeMatchAndNextIndex()
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
 
