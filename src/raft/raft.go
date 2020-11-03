@@ -106,12 +106,12 @@ type Raft struct {
 
 	applyCh chan ApplyMsg
 
-	electionTimeout time.Duration // time before timingout election
-	lastHeartbeat   time.Time     // Time of last heartbeat
-	offset          int
-	snapshot        Snapshot
-	killCh          chan bool
-	applyMessagesCh chan []ApplyMsg
+	electionTimeout    time.Duration // time before timingout election
+	lastHeartbeat      time.Time     // Time of last heartbeat
+	offset             int
+	snapshot           Snapshot
+	killCh             chan bool
+	maybeSendApplyChCh chan bool
 }
 
 // return currentTerm and whether this server
@@ -324,7 +324,7 @@ func (rf *Raft) appendEntriesToFirstNonMatchEntryInLog(args *AppendEntriesArgs) 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
-		defer rf.mu.Unlock()
+		defer rf.maybeSend() // has unlock in it
 		if args.Term < rf.currentTerm {
 			reply.Term = rf.currentTerm
 			reply.Success = false
@@ -379,7 +379,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//log.Printf("%d: previous commitIndex %d; args.LeaderCommit %d; prevLogIndex %d; argsLength: %d", rf.me, rf.commitIndex, args.LeaderCommit, args.PrevLogIndex, len(args.Entries))
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = max(rf.commitIndex, min(args.LeaderCommit, args.PrevLogIndex+len(args.Entries)))
-			rf.maybeSend()
 		}
 		//log.Printf("%d: after commitIndex %d", rf.me, rf.commitIndex)
 
@@ -398,7 +397,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	if !rf.killed() {
 		rf.mu.Lock()
-		defer rf.mu.Unlock()
+		defer rf.maybeSend() // has unlock in it
 		DPrintf("%d: received install snapshot request from %d for term %d. current term is %d; offset is %d; loglength is %d; lastIncludedIndex is %d; current log is %v; snapshot data is %v",
 			rf.me, args.LeaderId, args.Term, rf.currentTerm, rf.offset, len(rf.log), args.Snapshot.LastIncludedIndex, rf.log, args.Snapshot)
 
@@ -423,7 +422,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.offset = rf.snapshot.LastIncludedIndex
 
 		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
-		rf.maybeSend()
 		rf.currentTerm = args.Term
 
 		rf.persistSnapshot(args.Snapshot)
@@ -853,10 +851,15 @@ func (rf *Raft) createApplyChMessages() []ApplyMsg {
 func (rf *Raft) sendToApplyCh() {
 	for {
 		select {
-		case messages := <-rf.applyMessagesCh:
-			DPrintf("%d: messages length %d", rf.me, len(messages))
-			for _, msg := range messages {
-				rf.applyCh <- msg
+		case <-rf.maybeSendApplyChCh:
+			rf.mu.Lock()
+			messages := rf.createApplyChMessages()
+			rf.mu.Unlock()
+			if len(messages) > 0 {
+				DPrintf("%d: messages length %d", rf.me, len(messages))
+				for _, msg := range messages {
+					rf.applyCh <- msg
+				}
 			}
 		case <-rf.killCh:
 			return
@@ -866,7 +869,7 @@ func (rf *Raft) sendToApplyCh() {
 
 func (rf *Raft) handleAppendEntriesResponseMessage(fullResponse AppendEntriesResponse) {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	defer rf.maybeSend() // has unlock in it
 	if rf.state == Leader {
 		DPrint("Received appendEntries response to request from id ", rf.me, " to id ", fullResponse.ServerIndex, " for term ",
 			fullResponse.Request.Term, " response term is ", fullResponse.Response.Term, ". ", fullResponse)
@@ -925,7 +928,6 @@ func (rf *Raft) handleInstallSnapshotResponseMessage(fullResponse InstallSnapsho
 }
 
 func (rf *Raft) maybeUpdateCommitIndex() {
-	defer rf.maybeSend()
 	originalCommitIndex := rf.commitIndex
 	DPrint("updating commitIndex maybe", originalCommitIndex, rf.matchIndex, ". log is ", rf.log)
 	for N := originalCommitIndex + 1; N <= rf.effectiveLogLength(); N++ {
@@ -1008,8 +1010,10 @@ func (rf *Raft) initializeMatchAndNextIndex() {
 
 func (rf *Raft) maybeSend() {
 	if rf.commitIndex > rf.lastApplied {
-		messages := rf.createApplyChMessages()
-		rf.applyMessagesCh <- messages
+		rf.mu.Unlock()
+		rf.maybeSendApplyChCh <- true
+	} else {
+		rf.mu.Unlock()
 	}
 }
 
@@ -1032,7 +1036,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.offset = 0
 	rf.lastHeartbeat = time.Now().Add(-time.Duration(500) * time.Millisecond)
 	rf.killCh = make(chan bool)
-	rf.applyMessagesCh = make(chan []ApplyMsg)
+	rf.maybeSendApplyChCh = make(chan bool)
 
 	rf.initializeMatchAndNextIndex()
 	//DPrint("Initialize server id ", rf.me, " with electionTimeout ", rf.electionTimeout)
