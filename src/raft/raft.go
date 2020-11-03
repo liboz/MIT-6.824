@@ -518,7 +518,7 @@ func (rf *Raft) becomeCandidate() {
 					case resultChannel <- reply:
 						return
 					case <-time.After(electionTimeout):
-						log.Printf("%d: Nothing listening anymore. abort", rf.me)
+						DPrintf("%d: Nothing listening anymore. abort", rf.me)
 						return
 					}
 				}
