@@ -10,7 +10,7 @@ go test -race
 
 Run a test repeatedly
 ```
-sh ./testmanytimes.sh
+./go-test-many.sh
 ```
 
 Linearizability Visualizer has been modified to see lines more clearly
@@ -23,7 +23,7 @@ go test -race
 
 Run a test repeatedly
 ```
-sh ./testmanytimes.sh
+./go-test-many.sh
 ```
 
 
@@ -54,5 +54,5 @@ sh ./test-mr.sh
 Run many `test-mr.sh` many times:
 
 ```
-sh ./testmanytimes.sh
+./go-test-many.sh
 ```
