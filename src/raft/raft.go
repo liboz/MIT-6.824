@@ -378,7 +378,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		//log.Printf("%d: previous commitIndex %d; args.LeaderCommit %d; prevLogIndex %d; argsLength: %d", rf.me, rf.commitIndex, args.LeaderCommit, args.PrevLogIndex, len(args.Entries))
 		if args.LeaderCommit > rf.commitIndex {
-			rf.commitIndex = max(rf.commitIndex, min(args.LeaderCommit, args.PrevLogIndex+len(args.Entries)))
+			rf.commitIndex = Max(rf.commitIndex, Min(args.LeaderCommit, args.PrevLogIndex+len(args.Entries)))
 		}
 		//log.Printf("%d: after commitIndex %d", rf.me, rf.commitIndex)
 
@@ -421,7 +421,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.snapshot = args.Snapshot
 		rf.offset = rf.snapshot.LastIncludedIndex
 
-		rf.commitIndex = max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
+		rf.commitIndex = Max(rf.commitIndex, rf.snapshot.LastIncludedIndex)
 		rf.currentTerm = args.Term
 
 		rf.persistSnapshot(args.Snapshot)
@@ -884,7 +884,7 @@ func (rf *Raft) handleAppendEntriesResponseMessage(fullResponse AppendEntriesRes
 				DPrint("updating nextIndex for server ", fullResponse.ServerIndex, " from ", rf.nextIndex[fullResponse.ServerIndex], " as we got the response ", fullResponse.Response)
 				lastIndex := rf.findLastInLog(fullResponse.Response.XTerm)
 				if fullResponse.Response.XLength != -1 {
-					rf.nextIndex[fullResponse.ServerIndex] = max(1, fullResponse.Response.XLength)
+					rf.nextIndex[fullResponse.ServerIndex] = Max(1, fullResponse.Response.XLength)
 				} else if lastIndex != -1 {
 					rf.nextIndex[fullResponse.ServerIndex] = lastIndex // min value of 1
 				} else {
@@ -896,8 +896,8 @@ func (rf *Raft) handleAppendEntriesResponseMessage(fullResponse AppendEntriesRes
 		} else {
 			newLengthFromRequest := len(fullResponse.Request.Entries) + fullResponse.Request.PrevLogIndex
 			DPrint("updating matchIndex ", rf.matchIndex[fullResponse.ServerIndex], " and nextIndex ", rf.nextIndex[fullResponse.ServerIndex], " for server ", fullResponse.ServerIndex, " to ", newLengthFromRequest)
-			rf.matchIndex[fullResponse.ServerIndex] = max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
-			rf.nextIndex[fullResponse.ServerIndex] = max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
+			rf.matchIndex[fullResponse.ServerIndex] = Max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
+			rf.nextIndex[fullResponse.ServerIndex] = Max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
 		}
 		rf.maybeUpdateCommitIndex()
 	}
@@ -920,8 +920,8 @@ func (rf *Raft) handleInstallSnapshotResponseMessage(fullResponse InstallSnapsho
 			// success!
 			newLengthFromRequest := fullResponse.Request.Snapshot.LastIncludedIndex
 			DPrintf("%d: updating matchIndex %d and nextIndex %d for server %d to %d", rf.me, rf.matchIndex[fullResponse.ServerIndex], rf.nextIndex[fullResponse.ServerIndex], fullResponse.ServerIndex, newLengthFromRequest)
-			rf.matchIndex[fullResponse.ServerIndex] = max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
-			rf.nextIndex[fullResponse.ServerIndex] = max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
+			rf.matchIndex[fullResponse.ServerIndex] = Max(rf.matchIndex[fullResponse.ServerIndex], newLengthFromRequest)
+			rf.nextIndex[fullResponse.ServerIndex] = Max(rf.nextIndex[fullResponse.ServerIndex], newLengthFromRequest+1)
 		}
 	}
 

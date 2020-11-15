@@ -153,8 +153,8 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 		DPrintf("%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
 		if msg.IsSnapshot {
 			snapshot := msg.Command.(map[string]string)
-			kv.KV = copyMap(snapshot)
-			kv.seen = copyMapInt64(msg.Seen)
+			kv.KV = CopyMap(snapshot)
+			kv.seen = CopyMapInt64(msg.Seen)
 			DPrintf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
 		} else {
 			command := msg.Command.(Op)
@@ -197,8 +197,8 @@ func (kv *KVServer) getMessages() {
 				applyChanMapItem, ok := kv.applyChanMap[index]
 				delete(kv.applyChanMap, index)
 				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
-					copy := copyMap(kv.KV)
-					copyOfSeen := copyMapInt64(kv.seen)
+					copy := CopyMap(kv.KV)
+					copyOfSeen := CopyMapInt64(kv.seen)
 					DPrintf("%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.me, index, msg.Term, copyOfSeen, copy)
 					go kv.sendSaveSnapshot(index, msg.Term, copy, copyOfSeen)
 				}
@@ -235,22 +235,6 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 
 func (kv *KVServer) sendSaveSnapshot(index int, term int, copyOfKV map[string]string, copyOfSeen map[int64]int) {
 	kv.rf.SaveSnapshot(copyOfKV, index, term, copyOfSeen)
-}
-
-func copyMap(original map[string]string) map[string]string {
-	copy := make(map[string]string)
-	for key, value := range original {
-		copy[key] = value
-	}
-	return copy
-}
-
-func copyMapInt64(original map[int64]int) map[int64]int {
-	copy := make(map[int64]int)
-	for key, value := range original {
-		copy[key] = value
-	}
-	return copy
 }
 
 //

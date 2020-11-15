@@ -42,18 +42,18 @@ type GetReply struct {
 	Value string
 }
 
-func Min(a, b int) int {
-	if a < b {
-		return a
-	} else {
-		return b
+func CopyMap(original map[string]string) map[string]string {
+	copy := make(map[string]string)
+	for key, value := range original {
+		copy[key] = value
 	}
+	return copy
 }
 
-func Max(a, b int) int {
-	if a > b {
-		return a
-	} else {
-		return b
+func CopyMapInt64(original map[int64]int) map[int64]int {
+	copy := make(map[int64]int)
+	for key, value := range original {
+		copy[key] = value
 	}
+	return copy
 }
