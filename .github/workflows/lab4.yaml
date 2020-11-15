@@ -1,0 +1,17 @@
+name: Lab 3
+on:
+  push:
+    branches:
+      - "*"
+jobs:
+  test:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-go@v2
+      - name: Test Shardmaster
+        working-directory: shardmaster
+        env: 
+          RAFT_DEBUG: 0
+        run: go test -race
