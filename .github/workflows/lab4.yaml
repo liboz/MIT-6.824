@@ -14,6 +14,4 @@ jobs:
         working-directory: ./src/shardmaster
         env: 
           RAFT_DEBUG: 0
-        run: |
-          ls -al
-          go test -race
+        run: go test -race
