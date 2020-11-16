@@ -1,5 +1,7 @@
 package shardkv
 
+import "../kvraft"
+
 //
 // Sharded key/value server.
 // Lots of replica groups, each running op-at-a-time paxos.
@@ -18,6 +20,11 @@ const (
 
 type Err string
 
+type ClientInformation struct {
+	ClientId              int64
+	ClientOperationNumber int
+}
+
 // Put or Append
 type PutAppendArgs struct {
 	// You'll have to add definitions here.
@@ -27,6 +34,7 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	ClientInfo ClientInformation
 }
 
 type PutAppendReply struct {
@@ -36,9 +44,18 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+	ClientInfo ClientInformation
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+func CopyMap(original map[int]map[string]string) map[int]map[string]string {
+	copy := make(map[int]map[string]string)
+	for key, value := range original {
+		copy[key] = kvraft.CopyMap(value)
+	}
+	return copy
 }
