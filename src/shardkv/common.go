@@ -20,6 +20,11 @@ const (
 
 type Err string
 
+const (
+	INSTALLSHARD = "InstallShard"
+	SENDSHARDS   = "SendShards"
+)
+
 type ClientInformation struct {
 	ClientId              int64
 	ClientOperationNumber int
@@ -50,6 +55,18 @@ type GetArgs struct {
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type InstallShardArgs struct {
+	ShardNumber  int
+	Data         map[string]string
+	ConfigNumber int
+	ClientInfo   ClientInformation
+}
+
+type InstallShardReply struct {
+	ConfigNumber int
+	Err          Err
 }
 
 func CopyMap(original map[int]map[string]string) map[int]map[string]string {

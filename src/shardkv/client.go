@@ -10,6 +10,7 @@ package shardkv
 
 import (
 	"crypto/rand"
+	"log"
 	"math/big"
 	"time"
 
@@ -89,9 +90,11 @@ func (ck *Clerk) Get(key string) string {
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
+					log.Print("RETURNED WITH", reply)
 					return reply.Value
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
+					log.Print("WRONG GROUP")
 					break
 				}
 				// ... not ok, or ErrWrongLeader
@@ -127,6 +130,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
 				if ok && reply.Err == OK {
+					log.Printf("%s succcess with %s, %s", op, key, value)
 					return
 				}
 				if ok && reply.Err == ErrWrongGroup {
