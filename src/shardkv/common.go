@@ -65,8 +65,7 @@ type InstallShardArgs struct {
 }
 
 type InstallShardReply struct {
-	ConfigNumber int
-	Err          Err
+	Err Err
 }
 
 func CopyMap(original map[int]map[string]string) map[int]map[string]string {
