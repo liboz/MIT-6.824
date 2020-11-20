@@ -48,6 +48,7 @@ type Op struct {
 	ConfigNumber          int
 	ClientId              int64
 	ClientOperationNumber int
+	Seen                  map[int64]int
 }
 
 type ShardKV struct {
@@ -95,6 +96,7 @@ func (kv *ShardKV) InstallShard(args *InstallShardArgs, reply *InstallShardReply
 		op.ClientOperationNumber = args.ClientInfo.ClientOperationNumber
 		op.ShardNumber = args.ShardNumber
 		op.ConfigNumber = args.ConfigNumber
+		op.Seen = args.Seen
 		log.Printf("%d-%d: TRYING TO INSTALL SHARD on config #%d and shardNumber %d", kv.gid, kv.me, args.ConfigNumber, args.ShardNumber)
 		_, err := kv.startOpBase(op)
 		reply.Err = err
@@ -311,6 +313,7 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 					if len(kv.shardsLeftToReceive[command.ConfigNumber]) == 0 {
 						delete(kv.shardsLeftToReceive, command.ConfigNumber)
 					}
+					kv.mergeSeen(command.Seen)
 					log.Printf("%d-%d: Received shard #%d config number %d with data %v; current config number is %d updated shardKv is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, command.Data, kv.shardmasterConfig.Num, kv.ShardKV)
 					log.Printf("%d-%d: shardsLeftToReceive is %v ", kv.gid, kv.me, kv.shardsLeftToReceive)
 				} else if command.ConfigNumber > kv.shardmasterConfig.Num || !canInstall { // return failure if we still haven't updated our configs appropriately.
@@ -340,6 +343,17 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 		DPrintf("%d-%d: message skipped: %v", kv.gid, kv.me, msg)
 	}
 	return "", OK
+}
+
+func (kv *ShardKV) mergeSeen(sentSeen map[int64]int) {
+	for clientId, clientOperationNumber := range sentSeen {
+		value, ok := kv.seen[clientId]
+		if ok {
+			kv.seen[clientId] = raft.Max(value, clientOperationNumber)
+		} else {
+			kv.seen[clientId] = clientOperationNumber
+		}
+	}
 }
 
 func (kv *ShardKV) getMessages() {
@@ -515,6 +529,7 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 			args.ConfigNumber = configNumberToSend
 			args.ClientInfo.ClientId = kv.clientId
 			args.ClientInfo.ClientOperationNumber = kv.clientOperationNumber
+			args.Seen = kvraft.CopyMapInt64(kv.seen)
 			if allArgs[servers[si]] == nil {
 				allArgs[servers[si]] = []InstallShardArgs{}
 			}
