@@ -77,7 +77,7 @@ type InstallSnapshotResponse struct {
 type Snapshot struct {
 	LastIncludedTerm  int
 	LastIncludedIndex int
-	Data              map[string]string
+	Data              []byte
 	Seen              map[int64]int
 }
 
@@ -716,7 +716,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 // Snapshots only contain entries that are already committed
 // lastIncludedIndex is 1 indexed
-func (rf *Raft) SaveSnapshot(snapshot map[string]string, lastIncludedIndex int, lastIncludedTerm int, seen map[int64]int) {
+func (rf *Raft) SaveSnapshot(snapshot []byte, lastIncludedIndex int, lastIncludedTerm int, seen map[int64]int) {
 	if !rf.killed() {
 		rf.mu.Lock()
 		defer rf.mu.Unlock()

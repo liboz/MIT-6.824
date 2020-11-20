@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"log"
 	"math"
 	"sync"
@@ -152,8 +153,12 @@ func (kv *KVServer) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
 		DPrintf("%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
 		if msg.IsSnapshot {
-			snapshot := msg.Command.(map[string]string)
-			kv.KV = CopyMap(snapshot)
+			var snapshot map[string]string
+			rawSnapshotData := msg.Command.([]byte)
+			snapshotR := bytes.NewBuffer(rawSnapshotData)
+			snapshotD := labgob.NewDecoder(snapshotR)
+			snapshotD.Decode(&snapshot)
+			kv.KV = snapshot
 			kv.seen = CopyMapInt64(msg.Seen)
 			DPrintf("%d: after changing to snapshot we have %v", kv.me, kv.KV)
 		} else {
@@ -234,7 +239,12 @@ func (kv *KVServer) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem,
 }
 
 func (kv *KVServer) sendSaveSnapshot(index int, term int, copyOfKV map[string]string, copyOfSeen map[int64]int) {
-	kv.rf.SaveSnapshot(copyOfKV, index, term, copyOfSeen)
+	snapshotBuffer := new(bytes.Buffer)
+	encoder := labgob.NewEncoder(snapshotBuffer)
+
+	encoder.Encode(copyOfKV)
+	encodedSnapshot := snapshotBuffer.Bytes()
+	kv.rf.SaveSnapshot(encodedSnapshot, index, term, copyOfSeen)
 }
 
 //
