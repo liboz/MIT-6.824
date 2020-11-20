@@ -294,8 +294,13 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 			case INSTALL_SHARD:
 				_, exists := kv.shardsLeftToReceive[command.ConfigNumber]
 				exists = exists && kv.shardsLeftToReceive[command.ConfigNumber][command.ShardNumber]
-				log.Printf("%d-%d: LEFT%v", kv.gid, kv.me, kv.shardsLeftToReceive)
-				if exists {
+				_, minValueToSend := kv.findMinConfigNumberLeft()
+				canInstall := false
+				if minValueToSend == 0 || minValueToSend >= command.ConfigNumber {
+					canInstall = true
+				}
+				log.Printf("%d-%d: LEFT%v; minValueToSend: %d command.ConfigNumber %d", kv.gid, kv.me, kv.shardsLeftToReceive, minValueToSend, command.ConfigNumber)
+				if exists && canInstall {
 					for index, value := range command.Data {
 						if kv.ShardKV[command.ShardNumber] == nil {
 							kv.ShardKV[command.ShardNumber] = make(map[string]string)
@@ -308,9 +313,11 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 					}
 					log.Printf("%d-%d: Received shard #%d config number %d with data %v; current config number is %d updated shardKv is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, command.Data, kv.shardmasterConfig.Num, kv.ShardKV)
 					log.Printf("%d-%d: shardsLeftToReceive is %v ", kv.gid, kv.me, kv.shardsLeftToReceive)
+				} else if command.ConfigNumber > kv.shardmasterConfig.Num || !canInstall { // return failure if we still haven't updated our configs appropriately.
+					log.Printf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d which is higher than our current config number %d", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num)
+					return "", ErrWrongLeader
 				} else {
 					log.Printf("%d-%d: Received out of order command INSTALLSHARD to install %d we have configNumber %d but received command was %d", kv.gid, kv.me, command.ShardNumber, kv.shardmasterConfig.Num, command.ConfigNumber)
-					return "", ErrWrongLeader
 				}
 			case INSTALL_SHARD_RESPONSE:
 				log.Printf("%d-%d: DELETING LEFT TO SEND shard number: %d send config number: %d; %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardsLeftToSend)
