@@ -494,8 +494,8 @@ func (kv *ShardKV) findMinConfigNumberLeft() (int, int) {
 	return minValueToReceive, minValueToSend
 }
 
-func (kv *ShardKV) makeInstallShardArgs() map[string]InstallShardArgs {
-	allArgs := make(map[string]InstallShardArgs)
+func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
+	allArgs := make(map[string][]InstallShardArgs)
 	minValueToReceive, minValueToSend := kv.findMinConfigNumberLeft()
 	var configNumberToSend int
 	if minValueToReceive == 0 {
@@ -515,22 +515,28 @@ func (kv *ShardKV) makeInstallShardArgs() map[string]InstallShardArgs {
 			args.ConfigNumber = configNumberToSend
 			args.ClientInfo.ClientId = kv.clientId
 			args.ClientInfo.ClientOperationNumber = kv.clientOperationNumber
-			allArgs[servers[si]] = args
+			if allArgs[servers[si]] == nil {
+				allArgs[servers[si]] = []InstallShardArgs{}
+			}
+			allArgs[servers[si]] = append(allArgs[servers[si]], args)
 		}
 	}
+	log.Print("ALLARGS:", allArgs)
 	return allArgs
 }
 
-func (kv *ShardKV) sendShardsToNewHandlers(allArgs map[string]InstallShardArgs) {
+func (kv *ShardKV) sendShardsToNewHandlers(allArgs map[string][]InstallShardArgs) {
 	for serverName, args := range allArgs {
-		go func(serverName string, args InstallShardArgs) {
-			srv := kv.make_end(serverName)
-			reply := &InstallShardReply{}
-			ok := srv.Call("ShardKV.InstallShard", &args, &reply)
-			if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-				kv.handleInstallShardResponse(args, *reply)
-			}
-		}(serverName, args)
+		for _, arg := range args {
+			go func(serverName string, arg InstallShardArgs) {
+				srv := kv.make_end(serverName)
+				reply := &InstallShardReply{}
+				ok := srv.Call("ShardKV.InstallShard", &arg, &reply)
+				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
+					kv.handleInstallShardResponse(arg, *reply)
+				}
+			}(serverName, arg)
+		}
 	}
 }
 
