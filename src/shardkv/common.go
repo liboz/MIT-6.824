@@ -21,8 +21,9 @@ const (
 type Err string
 
 const (
-	INSTALLSHARD = "InstallShard"
-	SENDSHARDS   = "SendShards"
+	INSTALL_SHARD          = "InstallShard"
+	SEND_SHARDS            = "SendShards"
+	INSTALL_SHARD_RESPONSE = "InstallShardResponse"
 )
 
 type ClientInformation struct {
