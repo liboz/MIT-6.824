@@ -70,8 +70,6 @@ type ShardKV struct {
 	seen                    map[int64]int
 	applyChanMap            map[int]ApplyChanMapItem
 	raftStateSizeToSnapshot int
-	clientId                int64
-	clientOperationNumber   int
 	shardsLeftToReceive     map[int]map[int]bool     // config num to shard
 	shardsLeftToSend        map[int]map[int][]string // config number to shard number to server to send to
 }
@@ -92,8 +90,6 @@ func (kv *ShardKV) InstallShard(args *InstallShardArgs, reply *InstallShardReply
 		op := Op{}
 		op.Data = args.Data
 		op.OperationType = INSTALL_SHARD
-		op.ClientId = args.ClientInfo.ClientId
-		op.ClientOperationNumber = args.ClientInfo.ClientOperationNumber
 		op.ShardNumber = args.ShardNumber
 		op.ConfigNumber = args.ConfigNumber
 		op.Seen = args.Seen
@@ -483,8 +479,6 @@ func Equal(a, b [shardmaster.NShards]int) bool {
 func (kv *ShardKV) handleInstallShardResponse(args InstallShardArgs, reply InstallShardReply) {
 	op := Op{}
 	op.OperationType = INSTALL_SHARD_RESPONSE
-	op.ClientId = kv.clientId
-	op.ClientOperationNumber = kv.clientOperationNumber
 	op.ConfigNumber = args.ConfigNumber
 	op.ShardNumber = args.ShardNumber
 	kv.startOpBase(op)
@@ -527,8 +521,6 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 			args.ShardNumber = shardNumber
 			args.Data = kvraft.CopyMap(kv.ShardKV[shardNumber])
 			args.ConfigNumber = configNumberToSend
-			args.ClientInfo.ClientId = kv.clientId
-			args.ClientInfo.ClientOperationNumber = kv.clientOperationNumber
 			args.Seen = kvraft.CopyMapInt64(kv.seen)
 			if allArgs[servers[si]] == nil {
 				allArgs[servers[si]] = []InstallShardArgs{}
@@ -566,8 +558,6 @@ func (kv *ShardKV) getConfig() {
 				log.Printf("%d-%d: start consensus for reconfiguring to config #%d from config #%d", kv.gid, kv.me, newConfig.Num, currentConfigNum)
 				op := Op{}
 				op.OperationType = SEND_SHARDS
-				op.ClientId = kv.clientId
-				op.ClientOperationNumber = kv.clientOperationNumber
 				op.ConfigNumber = newConfig.Num
 				op.Config = newConfig
 				op.ShardNumber = -1
@@ -642,7 +632,6 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.make_end = make_end
 	kv.gid = gid
 	kv.masters = masters
-	kv.clientId = nrand() // TODO: fix this
 
 	// Your initialization code here.
 
