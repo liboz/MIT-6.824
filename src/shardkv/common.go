@@ -77,3 +77,37 @@ func CopyMap(original map[int]map[string]string) map[int]map[string]string {
 	}
 	return copy
 }
+
+func CopyShardsToSend(original map[int]map[int][]string) map[int]map[int][]string {
+	mapCopy := make(map[int]map[int][]string)
+	for key, value := range original {
+		mapCopy[key] = CopyShardsToSendMap(value)
+	}
+	return mapCopy
+}
+
+func CopyShardsToSendMap(original map[int][]string) map[int][]string {
+	mapCopy := make(map[int][]string)
+	for key, value := range original {
+		arrayCopy := make([]string, len(value))
+		copy(arrayCopy, value)
+		mapCopy[key] = value
+	}
+	return mapCopy
+}
+
+func CopyShardsToReceive(original map[int]map[int]bool) map[int]map[int]bool {
+	copy := make(map[int]map[int]bool)
+	for key, value := range original {
+		copy[key] = CopyShardsToReceiveMap(value)
+	}
+	return copy
+}
+
+func CopyShardsToReceiveMap(original map[int]bool) map[int]bool {
+	copy := make(map[int]bool)
+	for key, value := range original {
+		copy[key] = value
+	}
+	return copy
+}

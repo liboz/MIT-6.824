@@ -1,6 +1,7 @@
 package shardkv
 
 import (
+	"bytes"
 	"log"
 	"math"
 	"math/bits"
@@ -34,6 +35,13 @@ func DPrint(v ...interface{}) (n int, err error) {
 const (
 	TimeoutServerInterval = time.Duration(1 * time.Second)
 )
+
+type ShardKVSnapshot struct {
+	ShardKV             map[int]map[string]string
+	ShardsLeftToReceive map[int]map[int]bool     // config num to shard
+	ShardsLeftToSend    map[int]map[int][]string // config number to shard number to server to send to
+	ConfigNumber        int
+}
 
 type Op struct {
 	// Your definitions here.
@@ -230,8 +238,16 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
 		log.Printf("%d-%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.gid, kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
 		if msg.IsSnapshot {
-			snapshot := msg.Command.(map[int]map[string]string)
-			kv.ShardKV = CopyMap(snapshot)
+			var snapshot ShardKVSnapshot
+			rawSnapshotData := msg.Command.([]byte)
+			snapshotR := bytes.NewBuffer(rawSnapshotData)
+			snapshotD := labgob.NewDecoder(snapshotR)
+			snapshotD.Decode(&snapshot)
+
+			kv.ShardKV = CopyMap(snapshot.ShardKV)
+			kv.shardsLeftToReceive = CopyShardsToReceive(snapshot.ShardsLeftToReceive)
+			kv.shardsLeftToSend = CopyShardsToSend(snapshot.ShardsLeftToSend)
+			kv.shardmasterConfig = kv.shardmasterClerk.Query(snapshot.ConfigNumber)
 			kv.seen = kvraft.CopyMapInt64(msg.Seen)
 			DPrintf("%d-%d: after changing to snapshot we have %v", kv.gid, kv.me, kv.ShardKV)
 		} else {
@@ -352,18 +368,26 @@ func (kv *ShardKV) mergeSeen(sentSeen map[int64]int) {
 	}
 }
 
+func (kv *ShardKV) sendSaveSnapshot(index int, term int, copyOfKV map[int]map[string]string,
+	copyOfSeen map[int64]int, configNumber int, copyOfShardsLeftToSend map[int]map[int][]string, copyOfShardsLeftToReceive map[int]map[int]bool) {
+	snapshotBuffer := new(bytes.Buffer)
+	encoder := labgob.NewEncoder(snapshotBuffer)
+	snapshot := ShardKVSnapshot{}
+	snapshot.ShardKV = copyOfKV
+	snapshot.ConfigNumber = configNumber
+	snapshot.ShardsLeftToSend = copyOfShardsLeftToSend
+	snapshot.ShardsLeftToReceive = copyOfShardsLeftToReceive
+
+	encoder.Encode(snapshot)
+	encodedSnapshot := snapshotBuffer.Bytes()
+	kv.rf.SaveSnapshot(encodedSnapshot, index, term, copyOfSeen)
+}
+
 func (kv *ShardKV) getMessages() {
 	for {
 		select {
 		case msg := <-kv.applyCh:
 			kv.mu.Lock()
-			/*
-				shardNumber := msg.Command.(Op).ShardNumber
-				if kv.cantRespondToShardNumber(shardNumber) {
-					// ignore messages not for this shard
-					kv.mu.Unlock()
-					continue
-				}*/
 			val, err := kv.processApplyChMessage(msg)
 			if !msg.IsSnapshot {
 				command := msg.Command.(Op)
@@ -373,8 +397,11 @@ func (kv *ShardKV) getMessages() {
 				if kv.maxraftstate != -1 && msg.StateSize >= kv.raftStateSizeToSnapshot {
 					copy := CopyMap(kv.ShardKV)
 					copyOfSeen := kvraft.CopyMapInt64(kv.seen)
+					configNumber := kv.shardmasterConfig.Num
+					copyOfShardsLeftToSend := CopyShardsToSend(kv.shardsLeftToSend)
+					copyOfShardsLeftToReceive := CopyShardsToReceive(kv.shardsLeftToReceive)
 					DPrintf("%d-%d: saving snapshot with lastIndex: %d; lastTerm: %d; seen: %v; data: %v", kv.gid, kv.me, index, msg.Term, copyOfSeen, copy)
-					//go kv.sendSaveSnapshot(index, msg.Term, copy, copyOfSeen)
+					go kv.sendSaveSnapshot(index, msg.Term, copy, copyOfSeen, configNumber, copyOfShardsLeftToSend, copyOfShardsLeftToReceive)
 				}
 				kv.mu.Unlock()
 				if ok {
@@ -625,6 +652,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	labgob.Register(Op{})
 	labgob.Register(InstallShardArgs{})
 	labgob.Register(shardmaster.Config{})
+	labgob.Register(ShardKVSnapshot{})
 
 	kv := new(ShardKV)
 	kv.me = me
