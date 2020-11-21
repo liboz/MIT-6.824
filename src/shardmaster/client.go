@@ -7,6 +7,7 @@ package shardmaster
 import (
 	"crypto/rand"
 	"math/big"
+	"sync"
 	"time"
 
 	"../labrpc"
@@ -17,6 +18,7 @@ type Clerk struct {
 	// Your data here.
 	id              int64
 	operationNumber int
+	mu              sync.Mutex
 }
 
 func nrand() int64 {
@@ -36,11 +38,13 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 }
 
 func (ck *Clerk) Query(num int) Config {
+	ck.mu.Lock()
 	ck.operationNumber += 1
 	args := &QueryArgs{}
 	// Your code here.
 	args.ClientInfo.ClientId = ck.id
 	args.ClientInfo.ClientOperationNumber = ck.operationNumber
+	ck.mu.Unlock()
 	args.Num = num
 	for {
 		// try each known server.
