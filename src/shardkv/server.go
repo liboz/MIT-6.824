@@ -146,6 +146,8 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *ShardKV) cantRespondToShardNumber(shardNumber int) bool {
 	if shardNumber != -1 && kv.shardmasterConfig.Shards[shardNumber] != kv.gid {
 		return true
+	} else if kv.waitingForShard(shardNumber) {
+		return true
 	} else {
 		return false
 	}
@@ -274,27 +276,27 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 
 			switch commandType {
 			case kvraft.PUT:
-				if !kv.cantRespondToShardNumber(command.ShardNumber) {
-					kv.modifyKV(command, commandType, putToKV)
-				} else {
+				if kv.cantRespondToShardNumber(command.ShardNumber) {
 					return "", ErrWrongGroup
+				} else {
+					kv.modifyKV(command, commandType, putToKV)
 				}
 			case kvraft.APPEND:
-				if !kv.cantRespondToShardNumber(command.ShardNumber) {
-					kv.modifyKV(command, commandType, appendToKV)
-				} else {
+				if kv.cantRespondToShardNumber(command.ShardNumber) {
 					return "", ErrWrongGroup
+				} else {
+					kv.modifyKV(command, commandType, appendToKV)
 				}
 			case kvraft.GET:
-				if !kv.cantRespondToShardNumber(command.ShardNumber) {
+				if kv.cantRespondToShardNumber(command.ShardNumber) {
+					return "", ErrWrongGroup
+				} else {
 					val, ok := kv.ShardKV[command.ShardNumber][command.Key]
 					if ok {
 						return val, OK
 					} else {
 						return "", ErrNoKey
 					}
-				} else {
-					return "", ErrWrongGroup
 				}
 			case SEND_SHARDS:
 				for _, config := range command.Configs {
@@ -329,9 +331,11 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 				_, exists := kv.shardsLeftToReceive[command.ConfigNumber]
 				exists = exists && kv.shardsLeftToReceive[command.ConfigNumber][command.ShardNumber]
 				_, minValueToSend := kv.findMinConfigNumberLeft()
-				canInstall := false
-				if minValueToSend == 0 || minValueToSend >= command.ConfigNumber {
-					canInstall = true
+				canInstall := true
+				for i := minValueToSend; i <= command.ConfigNumber; i++ {
+					if _, exists := kv.shardsLeftToSend[i][command.ShardNumber]; exists {
+						canInstall = false
+					}
 				}
 				log.Printf("%d-%d: LEFT%v; minValueToSend: %d command.ConfigNumber %d", kv.gid, kv.me, kv.shardsLeftToReceive, minValueToSend, command.ConfigNumber)
 				if exists && canInstall {
@@ -356,12 +360,14 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 				}
 			case INSTALL_SHARD_RESPONSE:
 				log.Printf("%d-%d: DELETING LEFT TO SEND shard number: %d send config number: %d; %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardsLeftToSend)
-				if _, exists := kv.shardsLeftToSend[command.ConfigNumber]; exists {
-					delete(kv.shardsLeftToSend[command.ConfigNumber], command.ShardNumber)
-					if len(kv.shardsLeftToSend[command.ConfigNumber]) == 0 {
+				if sendMap, exists := kv.shardsLeftToSend[command.ConfigNumber]; exists {
+					if _, exists := sendMap[command.ShardNumber]; exists {
+						delete(sendMap, command.ShardNumber)
+						delete(kv.ShardKV, command.ShardNumber)
+					}
+					if len(sendMap) == 0 {
 						delete(kv.shardsLeftToSend, command.ConfigNumber)
 					}
-					delete(kv.ShardKV, command.ShardNumber)
 				}
 				log.Printf("%d-%d: AFTER DELETING LEFT TO SEND %d %v", kv.gid, kv.me, command.ShardNumber, kv.shardsLeftToSend)
 			default:
@@ -561,20 +567,31 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 
 	log.Printf("%d-%d: LEFT TO SEND for config %d; minValueToSend %d, minValueToReceive %d; leftToSend: %v; left to receive: %v", kv.gid, kv.me, configNumberToSend, minValueToSend, minValueToReceive, kv.shardsLeftToSend, kv.shardsLeftToReceive)
 
-	for shardNumber, servers := range kv.shardsLeftToSend[configNumberToSend] {
-		// try each server for the shard.
-		for si := 0; si < len(servers); si++ {
-			args := InstallShardArgs{}
-			args.ShardNumber = shardNumber
-			args.Data = kvraft.CopyMap(kv.ShardKV[shardNumber])
-			args.ConfigNumber = configNumberToSend
-			args.Seen = kvraft.CopyMapInt64(kv.seen)
-			if allArgs[servers[si]] == nil {
-				allArgs[servers[si]] = []InstallShardArgs{}
+	for configNumber, sendMap := range kv.shardsLeftToSend {
+		for shardNumber, servers := range sendMap {
+			canSend := true
+			for i := configNumberToSend; i <= configNumber; i++ {
+				if exists := kv.shardsLeftToReceive[i][shardNumber]; exists {
+					canSend = false
+				}
 			}
-			allArgs[servers[si]] = append(allArgs[servers[si]], args)
+			if canSend {
+				// try each server for the shard.
+				for si := 0; si < len(servers); si++ {
+					args := InstallShardArgs{}
+					args.ShardNumber = shardNumber
+					args.Data = kvraft.CopyMap(kv.ShardKV[shardNumber])
+					args.ConfigNumber = configNumber
+					args.Seen = kvraft.CopyMapInt64(kv.seen)
+					if allArgs[servers[si]] == nil {
+						allArgs[servers[si]] = []InstallShardArgs{}
+					}
+					allArgs[servers[si]] = append(allArgs[servers[si]], args)
+				}
+			}
 		}
 	}
+
 	log.Print("ALLARGS:", allArgs)
 	return allArgs
 }
