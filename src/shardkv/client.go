@@ -90,7 +90,7 @@ func (ck *Clerk) Get(key string) string {
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					log.Print("RETURNED WITH", reply)
+					log.Printf("GET succcess with shard %d key %s, value %s; client id %d op #%d", shard, key, reply.Value, args.ClientInfo.ClientId, args.ClientInfo.ClientOperationNumber)
 					return reply.Value
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
@@ -130,7 +130,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
 				if ok && reply.Err == OK {
-					log.Printf("%s succcess with %s, %s", op, key, value)
+					log.Printf("%s succcess with shard %d key %s, value %s; client id %d op #%d", op, shard, key, value, args.ClientInfo.ClientId, args.ClientInfo.ClientOperationNumber)
 					return
 				}
 				if ok && reply.Err == ErrWrongGroup {

@@ -38,20 +38,29 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 }
 
 func (ck *Clerk) Query(num int) Config {
-	ck.mu.Lock()
 	ck.operationNumber += 1
 	args := &QueryArgs{}
 	// Your code here.
 	args.ClientInfo.ClientId = ck.id
 	args.ClientInfo.ClientOperationNumber = ck.operationNumber
-	ck.mu.Unlock()
 	args.Num = num
+	responseCh := make(chan *QueryReply)
 	for {
 		// try each known server.
 		for _, srv := range ck.servers {
-			var reply QueryReply
-			ok := srv.Call("ShardMaster.Query", args, &reply)
-			if ok && !reply.WrongLeader {
+			go func(srv *labrpc.ClientEnd) {
+				reply := &QueryReply{}
+				ok := srv.Call("ShardMaster.Query", args, &reply)
+				if ok {
+					responseCh <- reply
+				}
+			}(srv)
+		}
+		select {
+		case <-time.After(time.Duration(500 * time.Millisecond)):
+			continue
+		case reply := <-responseCh:
+			if !reply.WrongLeader {
 				return reply.Config
 			}
 		}
