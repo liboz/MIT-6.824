@@ -62,7 +62,6 @@ type InstallShardArgs struct {
 	ShardNumber  int
 	Data         map[string]string
 	ConfigNumber int
-	ClientInfo   ClientInformation
 	Seen         map[int64]int
 }
 
