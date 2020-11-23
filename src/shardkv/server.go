@@ -164,24 +164,6 @@ func (kv *ShardKV) waitingForShard(shardNumber int) bool {
 	return waiting
 }
 
-func (kv *ShardKV) maybeWaitForShard(shardNumber int) {
-	for {
-		if !kv.killed() {
-			log.Printf("%d-%d: waiting! %d %v %v", kv.gid, kv.me, shardNumber, kv.waitingForShard(shardNumber), kv.shardsLeftToReceive)
-			if kv.waitingForShard(shardNumber) {
-				kv.mu.Unlock()
-				time.Sleep(time.Duration(100 * time.Millisecond))
-				kv.mu.Lock()
-			} else {
-				kv.mu.Unlock()
-				return
-			}
-		} else {
-			return
-		}
-	}
-}
-
 func (kv *ShardKV) startOp(Key string, Value string, OpType string, ClientInfo ClientInformation) (string, Err) {
 	op := Op{}
 	op.Key = Key
@@ -197,7 +179,7 @@ func (kv *ShardKV) startOp(Key string, Value string, OpType string, ClientInfo C
 		return "", ErrWrongGroup
 	}
 	op.ConfigNumber = kv.shardmasterConfig.Num
-	kv.maybeWaitForShard(shardNumber)
+	kv.mu.Unlock()
 	return kv.startOpBase(op)
 }
 
@@ -352,8 +334,11 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 					kv.mergeSeen(command.Seen)
 					log.Printf("%d-%d: Received shard #%d config number %d with data %v; current config number is %d updated shardKv is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, command.Data, kv.shardmasterConfig.Num, kv.ShardKV)
 					log.Printf("%d-%d: shardsLeftToReceive is %v ", kv.gid, kv.me, kv.shardsLeftToReceive)
-				} else if command.ConfigNumber > kv.shardmasterConfig.Num || !canInstall { // return failure if we still haven't updated our configs appropriately.
+				} else if command.ConfigNumber > kv.shardmasterConfig.Num { // return failure if we still haven't updated our configs appropriately.
 					log.Printf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d which is higher than our current config number %d", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num)
+					return "", ErrWrongLeader
+				} else if !canInstall {
+					log.Printf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d, current config numebr is %d, left to send is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num, kv.shardsLeftToSend)
 					return "", ErrWrongLeader
 				} else {
 					log.Printf("%d-%d: Received out of order command INSTALLSHARD to install %d we have configNumber %d but received command was %d", kv.gid, kv.me, command.ShardNumber, kv.shardmasterConfig.Num, command.ConfigNumber)
