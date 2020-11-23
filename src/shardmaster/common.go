@@ -33,10 +33,11 @@ const (
 )
 
 const (
-	JOIN  = "Join"
-	LEAVE = "Leave"
-	MOVE  = "Move"
-	QUERY = "Query"
+	JOIN         = "Join"
+	LEAVE        = "Leave"
+	MOVE         = "Move"
+	QUERY        = "Query"
+	QUERY_HIGHER = "QueryHigher"
 )
 
 type Err string
@@ -86,4 +87,10 @@ type QueryReply struct {
 	WrongLeader bool
 	Err         Err
 	Config      Config
+}
+
+type QueryHigherReply struct {
+	WrongLeader bool
+	Err         Err
+	Configs     []Config
 }

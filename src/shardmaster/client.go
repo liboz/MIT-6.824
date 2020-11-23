@@ -7,7 +7,6 @@ package shardmaster
 import (
 	"crypto/rand"
 	"math/big"
-	"sync"
 	"time"
 
 	"../labrpc"
@@ -18,7 +17,6 @@ type Clerk struct {
 	// Your data here.
 	id              int64
 	operationNumber int
-	mu              sync.Mutex
 }
 
 func nrand() int64 {
@@ -62,6 +60,37 @@ func (ck *Clerk) Query(num int) Config {
 		case reply := <-responseCh:
 			if !reply.WrongLeader {
 				return reply.Config
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (ck *Clerk) QueryHigher(num int) []Config {
+	ck.operationNumber += 1
+	args := &QueryArgs{}
+	// Your code here.
+	args.ClientInfo.ClientId = ck.id
+	args.ClientInfo.ClientOperationNumber = ck.operationNumber
+	args.Num = num
+	responseCh := make(chan *QueryHigherReply)
+	for {
+		// try each known server.
+		for _, srv := range ck.servers {
+			go func(srv *labrpc.ClientEnd) {
+				reply := &QueryHigherReply{}
+				ok := srv.Call("ShardMaster.QueryHigher", args, &reply)
+				if ok {
+					responseCh <- reply
+				}
+			}(srv)
+		}
+		select {
+		case <-time.After(time.Duration(500 * time.Millisecond)):
+			continue
+		case reply := <-responseCh:
+			if !reply.WrongLeader {
+				return reply.Configs
 			}
 		}
 		time.Sleep(100 * time.Millisecond)

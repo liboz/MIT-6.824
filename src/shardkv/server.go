@@ -619,16 +619,9 @@ func (kv *ShardKV) getConfig() {
 			kv.mu.Unlock()
 			_, isLeader := kv.rf.GetState()
 			if isLeader {
-				latestConfig := kv.shardmasterClerk.Query(-1)
-				if latestConfig.Num > currentConfigNum {
-					configs := []shardmaster.Config{}
-					for i := currentConfigNum + 1; i < latestConfig.Num; i++ {
-						log.Printf("%d-%d: Querying", kv.gid, kv.me)
-						nextConfig := kv.shardmasterClerk.Query(i)
-						log.Printf("%d-%d: Finished Querying", kv.gid, kv.me)
-						configs = append(configs, nextConfig)
-					}
-					configs = append(configs, latestConfig)
+				configs := kv.shardmasterClerk.QueryHigher(currentConfigNum)
+				if len(configs) > 0 {
+					latestConfig := configs[len(configs)-1]
 					log.Printf("%d-%d: start consensus for reconfiguring to config #%d from config #%d", kv.gid, kv.me, latestConfig.Num, currentConfigNum)
 					op := Op{}
 					op.OperationType = SEND_SHARDS

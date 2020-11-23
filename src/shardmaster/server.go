@@ -58,7 +58,7 @@ type Op struct {
 type SMMapItem struct {
 	err         Err
 	wrongLeader bool
-	val         Config
+	val         []Config
 }
 
 type ApplyChanMapItem struct {
@@ -114,14 +114,26 @@ func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) {
 func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) {
 	if !sm.killed() {
 		val, wrongLeader, err := sm.startOp(args.Num, QUERY, args.ClientInfo)
-		reply.Config = val
+		if len(val) > 0 {
+			reply.Config = val[0]
+		}
 		reply.WrongLeader = wrongLeader
 		reply.Err = err
 		return
 	}
 }
 
-func (sm *ShardMaster) startOp(data interface{}, operationType string, clientInfo ClientInformation) (Config, bool, Err) {
+func (sm *ShardMaster) QueryHigher(args *QueryArgs, reply *QueryHigherReply) {
+	if !sm.killed() {
+		val, wrongLeader, err := sm.startOp(args.Num, QUERY_HIGHER, args.ClientInfo)
+		reply.Configs = val
+		reply.WrongLeader = wrongLeader
+		reply.Err = err
+		return
+	}
+}
+
+func (sm *ShardMaster) startOp(data interface{}, operationType string, clientInfo ClientInformation) ([]Config, bool, Err) {
 	op := Op{}
 	op.Data = data
 	op.OperationType = operationType
@@ -142,13 +154,13 @@ func (sm *ShardMaster) startOp(data interface{}, operationType string, clientInf
 			defer sm.mu.Unlock()
 			delete(sm.applyChanMap, expectedIndex)
 
-			return Config{}, true, ""
+			return []Config{}, true, ""
 		case msg := <-msgCh:
 			DPrintf("%d: reply: %v, original op %v", sm.me, msg, op)
 			return msg.val, msg.wrongLeader, msg.err
 		}
 	} else {
-		return Config{}, true, ""
+		return []Config{}, true, ""
 	}
 }
 
@@ -230,7 +242,7 @@ func (sm *ShardMaster) modifyConfig(command Op, commandType string, operation fu
 	}
 }
 
-func (sm *ShardMaster) processApplyChMessage(msg raft.ApplyMsg) (Config, Err) {
+func (sm *ShardMaster) processApplyChMessage(msg raft.ApplyMsg) ([]Config, Err) {
 	if msg.CommandValid {
 		DPrintf("%d: Got message; commandIndex: %d, isSnapshot: %v; %v", sm.me, msg.CommandIndex, msg.IsSnapshot, msg)
 
@@ -247,10 +259,17 @@ func (sm *ShardMaster) processApplyChMessage(msg raft.ApplyMsg) (Config, Err) {
 		case QUERY:
 			var convertedData = command.Data.(int)
 			if convertedData == -1 || convertedData > len(sm.configs)-1 {
-				return sm.configs[len(sm.configs)-1], OK
+				return []Config{sm.configs[len(sm.configs)-1]}, OK
 			} else {
-				return sm.configs[convertedData], OK
+				return []Config{sm.configs[convertedData]}, OK
 			}
+		case QUERY_HIGHER:
+			var convertedData = command.Data.(int)
+			result := []Config{}
+			for i := convertedData + 1; i < len(sm.configs); i++ {
+				result = append(result, sm.configs[i])
+			}
+			return result, OK
 		default:
 			DPrintf("this should not happen!!!!!!!!!!!!!!: %v", msg)
 			panic("REALLY BAD")
@@ -259,7 +278,7 @@ func (sm *ShardMaster) processApplyChMessage(msg raft.ApplyMsg) (Config, Err) {
 	} else {
 		DPrintf("%d: message skipped: %v", sm.me, msg)
 	}
-	return Config{}, OK
+	return []Config{}, OK
 }
 
 func (sm *ShardMaster) getMessages() {
@@ -281,14 +300,14 @@ func (sm *ShardMaster) getMessages() {
 	}
 }
 
-func (sm *ShardMaster) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem, command Op, val Config, err Err) {
+func (sm *ShardMaster) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem, command Op, val []Config, err Err) {
 	messageCh := applyChanMapItem.ch
 	expectedClientId := applyChanMapItem.expectedClientId
 	expectedClientOperationNumber := applyChanMapItem.expectedClientOperationNumber
 	var msg SMMapItem
 	if command.ClientId != expectedClientId || command.ClientOperationNumber != expectedClientOperationNumber {
 		DPrintf("%d: No Longer leader", sm.me)
-		msg = SMMapItem{val: Config{}, wrongLeader: true, err: err}
+		msg = SMMapItem{val: []Config{}, wrongLeader: true, err: err}
 	} else {
 		msg = SMMapItem{val: val, wrongLeader: false, err: err}
 	}
