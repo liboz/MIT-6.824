@@ -76,7 +76,7 @@ func (ck *Clerk) Query(num int) Config {
 					return reply.Config
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 
 	}
@@ -112,7 +112,7 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 					return reply.Configs
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }

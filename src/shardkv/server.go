@@ -602,9 +602,13 @@ func (kv *ShardKV) getConfig() {
 			kv.mu.Lock()
 			currentConfigNum := kv.shardmasterConfig.Num
 			kv.mu.Unlock()
+			log.Printf("%d-%d: getting leader", kv.gid, kv.me)
 			_, isLeader := kv.rf.GetState()
+			log.Printf("%d-%d: getting leader finished", kv.gid, kv.me)
 			if isLeader {
+				log.Printf("%d-%d: querying", kv.gid, kv.me)
 				configs := kv.shardmasterClerk.QueryHigher(currentConfigNum)
+				log.Printf("%d-%d: querying finished", kv.gid, kv.me)
 				if len(configs) > 0 {
 					latestConfig := configs[len(configs)-1]
 					log.Printf("%d-%d: start consensus for reconfiguring to config #%d from config #%d", kv.gid, kv.me, latestConfig.Num, currentConfigNum)
@@ -616,7 +620,7 @@ func (kv *ShardKV) getConfig() {
 					go kv.startOpBase(op)
 				}
 			}
-			time.Sleep(time.Duration(50 * time.Millisecond))
+			time.Sleep(time.Duration(100 * time.Millisecond))
 		} else {
 			return
 		}

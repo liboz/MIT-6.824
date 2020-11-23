@@ -998,8 +998,8 @@ func (rf *Raft) findLastInLog(targetTerm int) int {
 // for any long-running work.
 //
 func generateElectionTimeOut() time.Duration {
-	//500ms to 1500ms
-	return time.Duration(rand.Intn(1500-500)+500) * time.Millisecond
+	//500ms to 800ms
+	return time.Duration(rand.Intn(800-500)+500) * time.Millisecond
 }
 
 func (rf *Raft) initializeMatchAndNextIndex() {
