@@ -64,7 +64,12 @@ func (ck *Clerk) Query(num int) Config {
 				reply := &QueryReply{}
 				ok := srv.Call("ShardMaster.Query", args, &reply)
 				if ok {
-					responseCh <- reply
+					select {
+					case <-time.After(time.Duration(250 * time.Millisecond)):
+						return
+					case responseCh <- reply:
+						return
+					}
 				}
 			}(srv)
 			select {
@@ -101,7 +106,12 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 				reply := &QueryHigherReply{}
 				ok := srv.Call("ShardMaster.QueryHigher", args, &reply)
 				if ok {
-					responseCh <- reply
+					select {
+					case <-time.After(time.Duration(250 * time.Millisecond)):
+						return
+					case responseCh <- reply:
+						return
+					}
 				}
 			}(srv)
 			select {
