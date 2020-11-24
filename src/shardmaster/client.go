@@ -68,17 +68,18 @@ func (ck *Clerk) Query(num int) Config {
 				}
 			}(srv)
 			select {
-			case <-time.After(time.Duration(500 * time.Millisecond)):
+			case <-time.After(time.Duration(250 * time.Millisecond)):
 				continue
 			case reply := <-responseCh:
 				if !reply.WrongLeader {
 					ck.lastLeaderServer = i % len(ck.servers)
 					return reply.Config
+				} else {
+					continue
 				}
 			}
-			time.Sleep(50 * time.Millisecond)
 		}
-
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -93,9 +94,9 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 
 	responseCh := make(chan *QueryHigherReply)
 	for {
+		// try each known server.
 		for i := initialServer; i < initialServer+len(ck.servers); i++ {
 			srv := ck.servers[i%len(ck.servers)]
-			// try each known server.
 			go func(srv *labrpc.ClientEnd) {
 				reply := &QueryHigherReply{}
 				ok := srv.Call("ShardMaster.QueryHigher", args, &reply)
@@ -104,16 +105,18 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 				}
 			}(srv)
 			select {
-			case <-time.After(time.Duration(500 * time.Millisecond)):
+			case <-time.After(time.Duration(250 * time.Millisecond)):
 				continue
 			case reply := <-responseCh:
 				if !reply.WrongLeader {
 					ck.lastLeaderServer = i % len(ck.servers)
 					return reply.Configs
+				} else {
+					continue
 				}
 			}
-			time.Sleep(50 * time.Millisecond)
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

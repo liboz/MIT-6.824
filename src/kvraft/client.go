@@ -77,12 +77,14 @@ func (ck *Clerk) Get(key string) string {
 			select {
 			case <-time.After(timeoutClientIntervals[raft.Min(attemptNumber, len(timeoutClientIntervals)-1)]):
 				//DPrintf("timing out Get request to %d", i)
-				break
+				continue
 			case reply := <-responseCh:
 				if reply.Err == OK || reply.Err == ErrNoKey {
 					ck.lastLeaderServer = i % len(ck.servers)
 					//DPrintf("%d: Get %s with %s:%s", ck.lastLeaderServer, reply.Err, key, reply.Value)
 					return reply.Value
+				} else {
+					continue
 				}
 			}
 
@@ -122,13 +124,15 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			select {
 			case <-time.After(timeoutClientIntervals[raft.Min(attemptNumber, len(timeoutClientIntervals)-1)]):
 				//DPrintf("timing out PutAppend request to %d", i)
-				break
+				continue
 			case reply := <-responseCh:
 				//DPrintf("client reply from %d: %v", i, reply)
 				if reply.Err == OK {
 					ck.lastLeaderServer = i % len(ck.servers)
 					//DPrintf("%d: %s success with %s:%s", ck.lastLeaderServer, op, key, value)
 					return
+				} else {
+					continue
 				}
 			}
 		}

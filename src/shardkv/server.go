@@ -218,7 +218,7 @@ func (kv *ShardKV) modifyKV(command Op, commandType string, operation func(map[s
 		operation(kv.ShardKV[command.ShardNumber], command.Key, command.Value)
 		kv.seen[command.ClientId] = command.ClientOperationNumber
 	} else {
-		log.Printf("%d-%d: skipped  message id %d %s from %d as we have already seen it. previous seen operation is %d ", kv.gid, kv.me,
+		DPrintf("%d-%d: skipped  message id %d %s from %d as we have already seen it. previous seen operation is %d ", kv.gid, kv.me,
 			command.ClientOperationNumber, commandType, command.ClientId, previousOperationNumber)
 	}
 }
@@ -360,7 +360,7 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 				panic("REALLY BAD")
 			}
 		}
-		log.Printf("%d-%d: %v", kv.gid, kv.me, kv.ShardKV)
+		DPrintf("%d-%d: %v", kv.gid, kv.me, kv.ShardKV)
 
 	} else {
 		DPrintf("%d-%d: message skipped: %v", kv.gid, kv.me, msg)
@@ -602,9 +602,7 @@ func (kv *ShardKV) getConfig() {
 			kv.mu.Lock()
 			currentConfigNum := kv.shardmasterConfig.Num
 			kv.mu.Unlock()
-			log.Printf("%d-%d: getting leader", kv.gid, kv.me)
 			_, isLeader := kv.rf.GetState()
-			log.Printf("%d-%d: getting leader finished", kv.gid, kv.me)
 			if isLeader {
 				log.Printf("%d-%d: querying", kv.gid, kv.me)
 				configs := kv.shardmasterClerk.QueryHigher(currentConfigNum)
