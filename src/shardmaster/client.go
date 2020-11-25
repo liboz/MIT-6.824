@@ -20,6 +20,11 @@ type Clerk struct {
 	lastLeaderServer int
 }
 
+type ResponseChItem struct {
+	Id       int
+	Response interface{}
+}
+
 func nrand() int64 {
 	max := big.NewInt(int64(1) << 62)
 	bigx, _ := rand.Int(rand.Reader, max)
@@ -54,38 +59,47 @@ func (ck *Clerk) Query(num int) Config {
 	args.ClientInfo.ClientId = ck.id
 	args.ClientInfo.ClientOperationNumber = ck.operationNumber
 	args.Num = num
-	responseCh := make(chan *QueryReply)
+	responseCh := make(chan ResponseChItem)
+	finishedCh := make(chan bool)
 	initialServer := ck.getInitialServer()
-	for {
-		// try each known server.
-		for i := initialServer; i < initialServer+len(ck.servers); i++ {
-			srv := ck.servers[i%len(ck.servers)]
-			go func(srv *labrpc.ClientEnd) {
-				reply := &QueryReply{}
-				ok := srv.Call("ShardMaster.Query", args, &reply)
-				if ok {
-					select {
-					case <-time.After(time.Duration(50 * time.Millisecond)):
-						return
-					case responseCh <- reply:
-						return
-					}
-				}
-			}(srv)
+	go func() {
+		for {
 			select {
-			case <-time.After(time.Duration(250 * time.Millisecond)):
-				continue
-			case reply := <-responseCh:
-				if !reply.WrongLeader {
-					ck.lastLeaderServer = i % len(ck.servers)
-					return reply.Config
-				} else {
-					continue
+			case <-finishedCh:
+				return
+			default:
+				// try each known server.
+				for i := initialServer; i < initialServer+len(ck.servers); i++ {
+					go func(i int) {
+						srv := ck.servers[i%len(ck.servers)]
+						reply := &QueryReply{}
+						ok := srv.Call("ShardMaster.Query", args, &reply)
+						if ok {
+							select {
+							case <-time.After(time.Duration(50 * time.Millisecond)):
+								return
+							case responseCh <- ResponseChItem{Id: i, Response: reply}:
+								return
+							}
+						}
+					}(i)
+					time.Sleep(100 * time.Millisecond) // wait 100ms before trying next server
 				}
 			}
+
 		}
-		time.Sleep(50 * time.Millisecond)
+	}()
+
+	for reply := range responseCh {
+		if !reply.Response.(*QueryReply).WrongLeader {
+			ck.lastLeaderServer = reply.Id % len(ck.servers)
+			go func() {
+				finishedCh <- true
+			}()
+			return reply.Response.(*QueryReply).Config
+		}
 	}
+	return Config{}
 }
 
 func (ck *Clerk) QueryHigher(num int) []Config {
@@ -95,39 +109,47 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 	args.ClientInfo.ClientId = ck.id
 	args.ClientInfo.ClientOperationNumber = ck.operationNumber
 	args.Num = num
+	responseCh := make(chan ResponseChItem)
+	finishedCh := make(chan bool)
 	initialServer := ck.getInitialServer()
-
-	responseCh := make(chan *QueryHigherReply)
-	for {
-		// try each known server.
-		for i := initialServer; i < initialServer+len(ck.servers); i++ {
-			srv := ck.servers[i%len(ck.servers)]
-			go func(srv *labrpc.ClientEnd) {
-				reply := &QueryHigherReply{}
-				ok := srv.Call("ShardMaster.QueryHigher", args, &reply)
-				if ok {
-					select {
-					case <-time.After(time.Duration(50 * time.Millisecond)):
-						return
-					case responseCh <- reply:
-						return
-					}
-				}
-			}(srv)
+	go func() {
+		for {
 			select {
-			case <-time.After(time.Duration(250 * time.Millisecond)):
-				continue
-			case reply := <-responseCh:
-				if !reply.WrongLeader {
-					ck.lastLeaderServer = i % len(ck.servers)
-					return reply.Configs
-				} else {
-					continue
+			case <-finishedCh:
+				return
+			default:
+				// try each known server.
+				for i := initialServer; i < initialServer+len(ck.servers); i++ {
+					go func(i int) {
+						srv := ck.servers[i%len(ck.servers)]
+						reply := &QueryHigherReply{}
+						ok := srv.Call("ShardMaster.QueryHigher", args, &reply)
+						if ok {
+							select {
+							case <-time.After(time.Duration(50 * time.Millisecond)):
+								return
+							case responseCh <- ResponseChItem{Id: i, Response: reply}:
+								return
+							}
+						}
+					}(i)
+					time.Sleep(100 * time.Millisecond) // wait 100ms before trying next server
 				}
 			}
+
 		}
-		time.Sleep(50 * time.Millisecond)
+	}()
+
+	for reply := range responseCh {
+		if !reply.Response.(*QueryHigherReply).WrongLeader {
+			ck.lastLeaderServer = reply.Id % len(ck.servers)
+			go func() {
+				finishedCh <- true
+			}()
+			return reply.Response.(*QueryHigherReply).Configs
+		}
 	}
+	return []Config{}
 }
 
 func (ck *Clerk) Join(servers map[int][]string) {
