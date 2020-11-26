@@ -33,7 +33,7 @@ func DPrint(v ...interface{}) (n int, err error) {
 }
 
 const (
-	TimeoutServerInterval = time.Duration(1 * time.Second)
+	TimeoutServerInterval = time.Duration(2 * time.Second)
 )
 
 type ShardKVSnapshot struct {
