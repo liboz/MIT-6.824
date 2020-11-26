@@ -577,7 +577,7 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 		}
 	}
 
-	DPrintf("ALLARGS:", allArgs)
+	DPrint("ALLARGS:", allArgs)
 	return allArgs
 }
 
