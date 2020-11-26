@@ -33,7 +33,7 @@ func DPrint(v ...interface{}) (n int, err error) {
 }
 
 const (
-	TimeoutServerInterval = time.Duration(2 * time.Second)
+	TimeoutServerInterval = time.Duration(1 * time.Second)
 )
 
 type ShardKVSnapshot struct {
@@ -639,7 +639,7 @@ func (kv *ShardKV) sendInstallShardsWhenNeeded() {
 					kv.mu.Unlock()
 				}
 			}
-			time.Sleep(time.Duration(200 * time.Millisecond))
+			time.Sleep(time.Duration(100 * time.Millisecond))
 		} else {
 			return
 		}
