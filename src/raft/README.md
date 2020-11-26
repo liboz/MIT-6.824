@@ -94,6 +94,7 @@ Implement Raft leader election and heartbeats (`AppendEntries` RPCs with no log 
 
 You should see something like this:
 
+```
 $ go test -run 2A
 Test (2A): initial election ...
   ... Passed --   4.0  3   32    9170    0
@@ -102,6 +103,7 @@ Test (2A): election after network failure ...
 PASS
 ok      raft    10.187s
 $
+```
 
 Each "Passed" line contains five numbers; these are the time that the test took in seconds, the number of Raft peers (usually 3 or 5), the number of RPCs sent during the test, the total number of bytes in the RPC messages, and the number of log entries that Raft reports were committed. Your numbers will differ from those shown here. You can ignore the numbers if you like, but they may help you sanity-check the number of RPCs that your implementation sends. For all of labs 2, 3, and 4, the grading script will fail your solution if it takes more than 600 seconds for all of the tests (`go test`), or if any individual test takes more than 120 seconds.
 

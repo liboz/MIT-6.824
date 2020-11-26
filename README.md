@@ -2,6 +2,20 @@
 
 Just a repo for my work learning Go/distributed system by doing the coursework for [MIT 6.824](https://pdos.csail.mit.edu/6.824/schedule.html)
 
+# Sharded KV
+[Full readme](src/shardkv/README.md)
+
+(in the `shardmaster` and `shardkv` folder)
+```
+go test 
+```
+
+
+Run a test repeatedly
+```
+./go-test-many.sh
+```
+
 # KV
 [Full readme](src/kvraft/README.md)
 ```
