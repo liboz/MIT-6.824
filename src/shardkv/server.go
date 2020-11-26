@@ -119,7 +119,7 @@ func (kv *ShardKV) InstallShard(args *InstallShardArgs, reply *InstallShardReply
 		op.ShardNumber = args.ShardNumber
 		op.ConfigNumber = args.ConfigNumber
 		op.Seen = args.Seen
-		log.Printf("%d-%d: TRYING TO INSTALL SHARD on config #%d and shardNumber %d", kv.gid, kv.me, args.ConfigNumber, args.ShardNumber)
+		DPrintf("%d-%d: TRYING TO INSTALL SHARD on config #%d and shardNumber %d", kv.gid, kv.me, args.ConfigNumber, args.ShardNumber)
 		_, err := kv.startOpBase(op)
 		reply.Err = err
 		return
@@ -187,14 +187,14 @@ func (kv *ShardKV) startOpBase(op Op) (string, Err) {
 	expectedIndex, _, isLeader := kv.rf.Start(op)
 	if isLeader {
 		kv.mu.Lock()
-		log.Printf("%d-%d: listening for %s with expectedIndex %d and operation %v", kv.gid, kv.me, op.OperationType, expectedIndex, op)
+		DPrintf("%d-%d: listening for %s with expectedIndex %d and operation %v", kv.gid, kv.me, op.OperationType, expectedIndex, op)
 		msgCh := make(chan KVMapItem)
 		kv.applyChanMap[expectedIndex] = ApplyChanMapItem{ch: msgCh, expectedClientOperationNumber: op.ClientOperationNumber, expectedClientId: op.ClientId}
 		kv.mu.Unlock()
 
 		select {
 		case <-time.After(TimeoutServerInterval):
-			log.Printf("%d-%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.gid, kv.me, op.OperationType, expectedIndex, op)
+			DPrintf("%d-%d: timed out waiting for message for %s with expectedIndex %d and operation %v", kv.gid, kv.me, op.OperationType, expectedIndex, op)
 			kv.mu.Lock()
 			defer kv.mu.Unlock()
 			delete(kv.applyChanMap, expectedIndex)
@@ -238,7 +238,7 @@ func appendToKV(KV map[string]string, key string, value string) {
 
 func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 	if msg.CommandValid {
-		log.Printf("%d-%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.gid, kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
+		DPrintf("%d-%d: Got message; commandIndex: %d, isSnapshot: %v; %v", kv.gid, kv.me, msg.CommandIndex, msg.IsSnapshot, msg)
 		if msg.IsSnapshot {
 			var snapshot ShardKVSnapshot
 			rawSnapshotData := msg.Command.([]byte)
@@ -299,14 +299,14 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 						for shard, target := range shardsToSend {
 							kv.shardsLeftToSend[config.Num][shard] = config.Groups[target]
 						}
-						log.Printf("%d-%d: Reconfiguring from config number #%d to #%d: %v to %v; sending %v and receiving %v", kv.gid, kv.me, kv.shardmasterConfig.Num, config.Num, oldShards, newShards, shardsToSend, shardsToReceive)
+						DPrintf("%d-%d: Reconfiguring from config number #%d to #%d: %v to %v; sending %v and receiving %v", kv.gid, kv.me, kv.shardmasterConfig.Num, config.Num, oldShards, newShards, shardsToSend, shardsToReceive)
 						kv.shardmasterConfig = config
 						if _, isLeader := kv.rf.GetState(); isLeader {
 							allArgs := kv.makeInstallShardArgs()
 							kv.sendShardsToNewHandlers(allArgs)
 						}
 					} else {
-						log.Printf("%d-%d: Received out of order command SENDSHARD we have configNumber %d but received command was %d", kv.gid, kv.me, kv.shardmasterConfig.Num, config.Num)
+						DPrintf("%d-%d: Received out of order command SENDSHARD we have configNumber %d but received command was %d", kv.gid, kv.me, kv.shardmasterConfig.Num, config.Num)
 					}
 				}
 			case INSTALL_SHARD:
@@ -319,7 +319,7 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 						canInstall = false
 					}
 				}
-				log.Printf("%d-%d: LEFT%v; minValueToSend: %d command.ConfigNumber %d", kv.gid, kv.me, kv.shardsLeftToReceive, minValueToSend, command.ConfigNumber)
+				DPrintf("%d-%d: LEFT%v; minValueToSend: %d command.ConfigNumber %d", kv.gid, kv.me, kv.shardsLeftToReceive, minValueToSend, command.ConfigNumber)
 				if exists && canInstall {
 					for index, value := range command.Data {
 						if kv.ShardKV[command.ShardNumber] == nil {
@@ -332,19 +332,19 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 						delete(kv.shardsLeftToReceive, command.ConfigNumber)
 					}
 					kv.mergeSeen(command.Seen)
-					log.Printf("%d-%d: Received shard #%d config number %d with data %v; current config number is %d updated shardKv is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, command.Data, kv.shardmasterConfig.Num, kv.ShardKV)
-					log.Printf("%d-%d: shardsLeftToReceive is %v ", kv.gid, kv.me, kv.shardsLeftToReceive)
+					DPrintf("%d-%d: Received shard #%d config number %d with data %v; current config number is %d updated shardKv is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, command.Data, kv.shardmasterConfig.Num, kv.ShardKV)
+					DPrintf("%d-%d: shardsLeftToReceive is %v ", kv.gid, kv.me, kv.shardsLeftToReceive)
 				} else if command.ConfigNumber > kv.shardmasterConfig.Num { // return failure if we still haven't updated our configs appropriately.
-					log.Printf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d which is higher than our current config number %d", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num)
+					DPrintf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d which is higher than our current config number %d", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num)
 					return "", ErrWrongLeader
 				} else if !canInstall {
-					log.Printf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d, current config numebr is %d, left to send is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num, kv.shardsLeftToSend)
+					DPrintf("%d-%d: Received and waiting to try again the out of order command INSTALLSHARD to install %d for config %d, current config numebr is %d, left to send is %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardmasterConfig.Num, kv.shardsLeftToSend)
 					return "", ErrWrongLeader
 				} else {
-					log.Printf("%d-%d: Received out of order command INSTALLSHARD to install %d we have configNumber %d but received command was %d", kv.gid, kv.me, command.ShardNumber, kv.shardmasterConfig.Num, command.ConfigNumber)
+					DPrintf("%d-%d: Received out of order command INSTALLSHARD to install %d we have configNumber %d but received command was %d", kv.gid, kv.me, command.ShardNumber, kv.shardmasterConfig.Num, command.ConfigNumber)
 				}
 			case INSTALL_SHARD_RESPONSE:
-				log.Printf("%d-%d: DELETING LEFT TO SEND shard number: %d send config number: %d; %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardsLeftToSend)
+				DPrintf("%d-%d: DELETING LEFT TO SEND shard number: %d send config number: %d; %v", kv.gid, kv.me, command.ShardNumber, command.ConfigNumber, kv.shardsLeftToSend)
 				if sendMap, exists := kv.shardsLeftToSend[command.ConfigNumber]; exists {
 					if _, exists := sendMap[command.ShardNumber]; exists {
 						delete(sendMap, command.ShardNumber)
@@ -354,7 +354,7 @@ func (kv *ShardKV) processApplyChMessage(msg raft.ApplyMsg) (string, Err) {
 						delete(kv.shardsLeftToSend, command.ConfigNumber)
 					}
 				}
-				log.Printf("%d-%d: AFTER DELETING LEFT TO SEND %d %v", kv.gid, kv.me, command.ShardNumber, kv.shardsLeftToSend)
+				DPrintf("%d-%d: AFTER DELETING LEFT TO SEND %d %v", kv.gid, kv.me, command.ShardNumber, kv.shardsLeftToSend)
 			default:
 				DPrintf("this should not happen!!!!!!!!!!!!!!: %v", msg)
 				panic("REALLY BAD")
@@ -442,7 +442,7 @@ func (kv *ShardKV) sendMessageToApplyChanMap(applyChanMapItem ApplyChanMapItem, 
 	case messageCh <- msg:
 		return
 	default:
-		log.Printf("%d-%d: tried to send message %v: %v to apply channel, but it was not available for listening", kv.gid, kv.me, expectedClientId, expectedClientOperationNumber)
+		DPrintf("%d-%d: tried to send message %v: %v to apply channel, but it was not available for listening", kv.gid, kv.me, expectedClientId, expectedClientOperationNumber)
 	}
 }
 
@@ -550,7 +550,7 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 		configNumberToSend = raft.Min(minValueToSend, minValueToReceive)
 	}
 
-	log.Printf("%d-%d: LEFT TO SEND for config %d; minValueToSend %d, minValueToReceive %d; leftToSend: %v; left to receive: %v", kv.gid, kv.me, configNumberToSend, minValueToSend, minValueToReceive, kv.shardsLeftToSend, kv.shardsLeftToReceive)
+	DPrintf("%d-%d: LEFT TO SEND for config %d; minValueToSend %d, minValueToReceive %d; leftToSend: %v; left to receive: %v", kv.gid, kv.me, configNumberToSend, minValueToSend, minValueToReceive, kv.shardsLeftToSend, kv.shardsLeftToReceive)
 
 	for configNumber, sendMap := range kv.shardsLeftToSend {
 		for shardNumber, servers := range sendMap {
@@ -577,7 +577,7 @@ func (kv *ShardKV) makeInstallShardArgs() map[string][]InstallShardArgs {
 		}
 	}
 
-	log.Print("ALLARGS:", allArgs)
+	DPrintf("ALLARGS:", allArgs)
 	return allArgs
 }
 
@@ -604,9 +604,7 @@ func (kv *ShardKV) getConfig() {
 			kv.mu.Unlock()
 			_, isLeader := kv.rf.GetState()
 			if isLeader {
-				log.Printf("%d-%d: querying", kv.gid, kv.me)
 				configs := kv.shardmasterClerk.QueryHigher(currentConfigNum)
-				log.Printf("%d-%d: querying finished", kv.gid, kv.me)
 				if len(configs) > 0 {
 					latestConfig := configs[len(configs)-1]
 					log.Printf("%d-%d: start consensus for reconfiguring to config #%d from config #%d", kv.gid, kv.me, latestConfig.Num, currentConfigNum)
@@ -630,7 +628,7 @@ func (kv *ShardKV) sendInstallShardsWhenNeeded() {
 		if !kv.killed() {
 			if _, isLeader := kv.rf.GetState(); isLeader {
 				kv.mu.Lock()
-				log.Printf("%d-%d: CHECKING LEFT TO SEND %v", kv.gid, kv.me, kv.shardsLeftToSend)
+				DPrintf("%d-%d: CHECKING LEFT TO SEND %v", kv.gid, kv.me, kv.shardsLeftToSend)
 				if len(kv.shardsLeftToSend) > 0 {
 					allArgs := kv.makeInstallShardArgs()
 					kv.mu.Unlock()
