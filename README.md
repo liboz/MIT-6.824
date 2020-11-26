@@ -16,6 +16,8 @@ Run a test repeatedly
 ./go-test-many.sh
 ```
 
+Note that shardmaster has been modified from the vanila version by adding `QueryHigher` to allow for a client to fetch all configs higher than a certain number instead of querying it one by one. This was to be higher performance.
+
 # KV
 [Full readme](src/kvraft/README.md)
 ```
