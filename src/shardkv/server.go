@@ -639,7 +639,7 @@ func (kv *ShardKV) sendInstallShardsWhenNeeded() {
 					kv.mu.Unlock()
 				}
 			}
-			time.Sleep(time.Duration(100 * time.Millisecond))
+			time.Sleep(time.Duration(200 * time.Millisecond))
 		} else {
 			return
 		}

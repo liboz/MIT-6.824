@@ -64,12 +64,12 @@ func (ck *Clerk) Query(num int) Config {
 	initialServer := ck.getInitialServer()
 	go func() {
 		for {
-			select {
-			case <-finishedCh:
-				return
-			default:
-				// try each known server.
-				for i := initialServer; i < initialServer+len(ck.servers); i++ {
+			// try each known server.
+			for i := initialServer; i < initialServer+len(ck.servers); i++ {
+				select {
+				case <-finishedCh:
+					return
+				default:
 					go func(i int) {
 						srv := ck.servers[i%len(ck.servers)]
 						reply := &QueryReply{}
@@ -83,10 +83,9 @@ func (ck *Clerk) Query(num int) Config {
 							}
 						}
 					}(i)
-					time.Sleep(100 * time.Millisecond) // wait 100ms before trying next server
 				}
 			}
-
+			time.Sleep(200 * time.Millisecond) // wait 200ms before trying again
 		}
 	}()
 
@@ -114,12 +113,12 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 	initialServer := ck.getInitialServer()
 	go func() {
 		for {
-			select {
-			case <-finishedCh:
-				return
-			default:
-				// try each known server.
-				for i := initialServer; i < initialServer+len(ck.servers); i++ {
+			// try each known server.
+			for i := initialServer; i < initialServer+len(ck.servers); i++ {
+				select {
+				case <-finishedCh:
+					return
+				default:
 					go func(i int) {
 						srv := ck.servers[i%len(ck.servers)]
 						reply := &QueryHigherReply{}
@@ -133,10 +132,9 @@ func (ck *Clerk) QueryHigher(num int) []Config {
 							}
 						}
 					}(i)
-					time.Sleep(100 * time.Millisecond) // wait 100ms before trying next server
 				}
 			}
-
+			time.Sleep(200 * time.Millisecond) // wait 200ms before trying again
 		}
 	}()
 
